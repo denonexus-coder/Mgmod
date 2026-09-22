@@ -3,7 +3,10 @@
     "package": "com.denonexus.mgshaders.client.mixin",
     "compatibilityLevel": "JAVA_21",
     "client": [
-        "LevelRendererMixin"
+        "LevelRendererMixin",
+        "SectionCompilerMixin",
+        "RebuildTaskMixin",
+        "UploadMixin"
     ],
     "injectors": {
         "defaultRequire": 1
