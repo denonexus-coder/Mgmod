@@ -66,6 +66,29 @@ public final class ChunkProfiler {
         }
     }
 
+    // Rastreia threads únicas que compilam
+    private static final java.util.Set<Long> activeThreads =
+            java.util.Collections.synchronizedSet(new java.util.HashSet<>());
+    private static final java.util.Set<String> uniqueThreadNames =
+            java.util.Collections.synchronizedSet(new java.util.HashSet<>());
+
+    // Outliers (chunks que levam > threshold)
+    private static final long OUTLIER_THRESHOLD_NS = 500_000_000L; // 500ms
+    private static final java.util.List<String> outliers =
+            java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+
+    public static void recordThread() {
+        activeThreads.add(Thread.currentThread().threadId());
+        uniqueThreadNames.add(Thread.currentThread().getName());
+    }
+
+    public static void recordOutlier(String pos, long ns) {
+        if (ns < OUTLIER_THRESHOLD_NS) return;
+        outliers.add(String.format("%s took %.0fms", pos, ns / 1_000_000.0));
+        // Limita a 50 outliers na lista
+        if (outliers.size() > 50) outliers.remove(0);
+    }
+
     private ChunkProfiler() {}
 
     public static void record(long queueWait, long compile, long total, boolean success) {
@@ -149,7 +172,26 @@ public final class ChunkProfiler {
         sb.append("  \"queue_wait_ms\": ").append(json(sQ)).append(",\n");
         sb.append("  \"compile_ms\":    ").append(json(sC)).append(",\n");
         sb.append("  \"total_ms\":      ").append(json(sT)).append(",\n");
-        sb.append("  \"upload_ms\":     ").append(json(sU)).append("\n");
+        sb.append("  \"upload_ms\":     ").append(json(sU)).append(",\n");
+        sb.append("  \"threads\": {\n");
+        sb.append("    \"unique_count\": ").append(uniqueThreadNames.size()).append(",\n");
+        sb.append("    \"names\": [");
+        boolean first = true;
+        for (String n : uniqueThreadNames) {
+            if (!first) sb.append(",");
+            sb.append("\"").append(n).append("\"");
+            first = false;
+        }
+        sb.append("]\n");
+        sb.append("  },\n");
+        sb.append("  \"outliers\": [");
+        first = true;
+        for (String o : outliers) {
+            if (!first) sb.append(",");
+            sb.append("\"").append(o).append("\"");
+            first = false;
+        }
+        sb.append("]\n");
         sb.append("}\n");
 
         try {

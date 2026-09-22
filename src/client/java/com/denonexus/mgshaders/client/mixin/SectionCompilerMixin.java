@@ -11,16 +11,6 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-/**
- * Mede o tempo de meshing puro de um chunk.
- *
- * Assinatura extraida do mappings 1.21.11:
- *   SectionCompiler.Results compile(SectionPos, RenderSectionRegion,
- *                                    VertexSorting, SectionBufferBuilderPack)
- *   → obf: a
- *
- * Roda em worker thread. Nao modifica nada — so mede.
- */
 @Mixin(SectionCompiler.class)
 public class SectionCompilerMixin {
 
@@ -34,6 +24,7 @@ public class SectionCompilerMixin {
             SectionBufferBuilderPack buffers,
             CallbackInfoReturnable<SectionCompiler.Results> cir
     ) {
+        ChunkProfiler.recordThread();
         T_START.set(System.nanoTime());
     }
 
@@ -52,7 +43,11 @@ public class SectionCompilerMixin {
         long elapsed = System.nanoTime() - start;
         boolean success = cir.getReturnValue() != null;
 
-        // queueWait=-1 (desconhecido aqui), compile=elapsed, total=-1
         ChunkProfiler.record(-1L, elapsed, -1L, success);
+
+        // Loga posição + tempo se for outlier (>500ms)
+        String posStr = String.format("chunk(%d,%d,%d)",
+            pos.x(), pos.y(), pos.z());
+        ChunkProfiler.recordOutlier(posStr, elapsed);
     }
 }
