@@ -6,7 +6,10 @@
         "LevelRendererMixin",
         "SectionCompilerMixin",
         "RebuildTaskMixin",
-        "UploadMixin"
+        "UploadMixin",
+        "ServerTickMixin",
+        "PipelineMixin$Loaded",
+        "PipelineMixin$Compile"
     ],
     "injectors": {
         "defaultRequire": 1
