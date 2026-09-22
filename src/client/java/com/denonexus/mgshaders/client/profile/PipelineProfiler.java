@@ -11,30 +11,20 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-/**
- * Mede as fases entre chunk loaded e meshing done.
- *
- * Correlaciona por SectionPos — cada chunk tem seu registro.
- * Dumpa no shutdown em /sdcard/MG/mgshaders_pipeline.json
- */
 public final class PipelineProfiler {
 
     private static final Path OUT =
             Paths.get("/sdcard/MG/mgshaders_pipeline.json");
 
-    // Mapa SectionPos (long) -> timestamps de cada fase
     private static final java.util.Map<Long, ChunkPhases> chunks =
             new java.util.concurrent.ConcurrentHashMap<>();
 
-    private static long maxQueueDelayNs = 0;
-    private static long maxLightDelayNs = 0;
-
     public static class ChunkPhases {
-        public long loadedNs = 0;      // quando o chunk chegou do disco
-        public long lightReadyNs = 0;  // quando o light engine terminou
-        public long compileStartNs = 0; // quando SectionCompiler.compile comecou
-        public long compileEndNs = 0;   // quando terminou
-        public long uploadedNs = 0;     // quando uploadAllPendingUploads processou
+        public long loadedNs = 0;
+        public long lightReadyNs = 0;
+        public long compileStartNs = 0;
+        public long compileEndNs = 0;
+        public long uploadedNs = 0;
 
         public boolean hasLoad()    { return loadedNs > 0; }
         public boolean hasLight()   { return lightReadyNs > 0; }
@@ -51,12 +41,9 @@ public final class PipelineProfiler {
     public static void flush() {
         if (chunks.isEmpty()) return;
 
-        long now = System.nanoTime();
-
         List<Long> loadToLight = new ArrayList<>();
         List<Long> lightToCompile = new ArrayList<>();
         List<Long> compileDuration = new ArrayList<>();
-        List<Long> compileToUpload = new ArrayList<>();
 
         for (ChunkPhases p : chunks.values()) {
             if (p.hasLight() && p.hasLoad() && p.loadedNs < p.lightReadyNs)
@@ -65,25 +52,21 @@ public final class PipelineProfiler {
                 lightToCompile.add(p.compileStartNs - p.lightReadyNs);
             if (p.hasCompile() && p.compileEndNs > p.compileStartNs)
                 compileDuration.add(p.compileEndNs - p.compileStartNs);
-            if (p.hasUpload() && p.hasCompile() && p.compileEndNs < p.uploadedNs)
-                compileToUpload.add(p.uploadedNs - p.compileEndNs);
         }
 
-        StringBuilder sb = new StringBuilder(2048);
+        StringBuilder sb = new StringBuilder(1024);
         sb.append("{\n");
         sb.append("  \"chunks_tracked\": ").append(chunks.size()).append(",\n");
         sb.append("  \"load_to_light_ms\":   ").append(json(loadToLight)).append(",\n");
         sb.append("  \"light_to_compile_ms\": ").append(json(lightToCompile)).append(",\n");
-        sb.append("  \"compile_duration_ms\": ").append(json(compileDuration)).append(",\n");
-        sb.append("  \"compile_to_upload_ms\": ").append(json(compileToUpload)).append("\n");
+        sb.append("  \"compile_duration_ms\": ").append(json(compileDuration)).append("\n");
         sb.append("}\n");
 
         try {
             Files.createDirectories(OUT.getParent());
             Files.writeString(OUT, sb.toString(), StandardCharsets.UTF_8);
-            MGShaders.LOGGER.info(
-                "[MGShaders] pipeline ({}) — tracked {} chunks",
-                "flush", chunks.size());
+            MGShaders.LOGGER.info("[MGShaders] pipeline flush — tracked {} chunks",
+                                  chunks.size());
         } catch (IOException e) {
             MGShaders.LOGGER.warn("[MGShaders] pipeline write failed: {}", e.getMessage());
         }

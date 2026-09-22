@@ -8,8 +8,8 @@
         "RebuildTaskMixin",
         "UploadMixin",
         "ServerTickMixin",
-        "PipelineMixin$Loaded",
-        "PipelineMixin$Compile"
+        "ChunkLoadMixin",
+        "CompileTimingMixin"
     ],
     "injectors": {
         "defaultRequire": 1
