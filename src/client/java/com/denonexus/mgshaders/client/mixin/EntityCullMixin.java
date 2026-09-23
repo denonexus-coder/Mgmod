@@ -3,6 +3,7 @@ package com.denonexus.mgshaders.client.mixin;
 import com.denonexus.mgshaders.client.budget.FrameBudget;
 import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.client.renderer.entity.EntityRenderDispatcher;
+import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.world.entity.Entity;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -23,7 +24,7 @@ public class EntityCullMixin {
                                  double camX, double camY, double camZ,
                                  CallbackInfoReturnable<Boolean> cir) {
         if (entity == null) return;
-        if (entity.isLocalPlayer()) return;
+        if (entity instanceof LocalPlayer) return;
 
         double dx = entity.getX() - camX;
         double dy = entity.getY() - camY;

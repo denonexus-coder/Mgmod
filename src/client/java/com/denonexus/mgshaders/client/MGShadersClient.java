@@ -35,7 +35,7 @@ public class MGShadersClient implements ClientModInitializer {
                 "key.mgshaders.toggle_hud",
                 InputConstants.Type.KEYSYM,
                 GLFW.GLFW_KEY_F6,
-                "category.mgshaders"
+                KeyMapping.Category.MISC
         ));
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
