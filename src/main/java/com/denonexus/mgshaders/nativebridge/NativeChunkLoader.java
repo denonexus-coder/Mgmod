@@ -19,7 +19,6 @@ public final class NativeChunkLoader {
 
     private static MethodHandle hReadChunk;
     private static MethodHandle hCountChunks;
-    private static Arena libraryArena;
 
     private NativeChunkLoader() {}
 
@@ -88,7 +87,7 @@ public final class NativeChunkLoader {
     public static byte[] readChunk(Path mcaPath, int chunkX, int chunkZ, int maxBytes) {
         if (!available || hReadChunk == null) return null;
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment cPath = arena.allocateFrom(mcaPath.toAbsolutePath().toString());
+            MemorySegment cPath = arena.allocateUtf8String(mcaPath.toAbsolutePath().toString());
             MemorySegment buf = arena.allocate(maxBytes);
 
             long written = (long) hReadChunk.invokeExact(
@@ -108,7 +107,7 @@ public final class NativeChunkLoader {
     public static int countChunks(Path mcaPath) {
         if (!available || hCountChunks == null) return -1;
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment cPath = arena.allocateFrom(mcaPath.toAbsolutePath().toString());
+            MemorySegment cPath = arena.allocateUtf8String(mcaPath.toAbsolutePath().toString());
             return (int) hCountChunks.invokeExact(cPath);
         } catch (Throwable t) {
             return -1;
