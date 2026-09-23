@@ -99,4 +99,10 @@ public final class PipelineProfiler {
             it.remove();
         }
     }
+
+    /** Estimativa em bytes do mapa de chunks. */
+    public static long estimatedBytes() {
+        // ChunkPhases: 5 longs + header ≈ 80 bytes; entrada do HashMap ≈ 40 bytes
+        return chunks.size() * 120L;
+    }
 }

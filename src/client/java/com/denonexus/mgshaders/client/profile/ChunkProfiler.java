@@ -235,4 +235,12 @@ public final class ChunkProfiler {
             }
         }
     }
+
+    /** Estimativa em bytes das listas em memória. */
+    public static long estimatedBytes() {
+        synchronized (ChunkProfiler.class) {
+            long n = queueWaitNs.size() + compileNs.size() + totalNs.size() + uploadNs.size();
+            return n * 8L + outliers.size() * 64L;
+        }
+    }
 }

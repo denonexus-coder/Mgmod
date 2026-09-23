@@ -6,7 +6,7 @@ import com.denonexus.mgshaders.client.hud.MgHudOverlay;
 import com.denonexus.mgshaders.client.profile.ChunkProfiler;
 import com.denonexus.mgshaders.client.profile.PipelineProfiler;
 import com.denonexus.mgshaders.client.profile.ServerTickProfiler;
-import com.denonexus.mgshaders.client.ram.RamCleaner;
+import com.denonexus.mgshaders.client.ram.RamManager;
 import com.denonexus.mgshaders.nativebridge.NativeChunkLoader;
 
 import com.mojang.blaze3d.platform.InputConstants;
@@ -43,7 +43,7 @@ public class MGShadersClient implements ClientModInitializer {
             while (toggleHudKey.consumeClick()) {
                 MgHudOverlay.toggle();
             }
-            RamCleaner.tick();
+            RamManager.tick();
         });
 
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
