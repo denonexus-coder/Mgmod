@@ -6,60 +6,51 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Detecta vazamentos por "tag" monitorando crescimento monotônico.
- * NÃO força GC. Apenas observa e reporta.
+ * Detecta crescimento MONOTÔNICO por tag.
+ * Só alerta após N amostras consecutivas de crescimento E crescimento > 8 MB.
+ * Reset ao encolher. Cooldown de 120s entre avisos. Sem System.gc().
  */
 public final class LeakGuard {
 
-    private static final long GROWTH_THRESHOLD_BYTES = 8L * 1024 * 1024;   // +8 MB
-    private static final long WARN_EVERY_NS = 60_000_000_000L;              // 60 s
+    private static final long GROWTH_THRESHOLD = 8L * 1024 * 1024;
+    private static final int  MIN_SAMPLES      = 6;
+    private static final long WARN_COOLDOWN_NS = 120_000_000_000L;
 
     private static final class Entry {
-        long baseline;
-        long peak;
-        long lastWarnNs;
-        int  monotonicSamples;
+        long baseline, peak, lastValue, lastWarnNs;
+        int  consecutiveGrowth, warnings;
     }
 
     private static final Map<String, Entry> MAP = new ConcurrentHashMap<>();
 
     private LeakGuard() {}
 
-    /** Registra tamanho atual do recurso 'tag'. Baseline no primeiro registro. */
     public static void sample(String tag, long bytes) {
         Entry e = MAP.computeIfAbsent(tag, k -> {
             Entry ne = new Entry();
-            ne.baseline = bytes;
-            ne.peak = bytes;
+            ne.baseline = ne.peak = ne.lastValue = bytes;
             return ne;
         });
 
+        if      (bytes < e.lastValue) e.consecutiveGrowth = 0;
+        else if (bytes > e.lastValue) e.consecutiveGrowth++;
+
+        e.lastValue = bytes;
         if (bytes > e.peak) e.peak = bytes;
 
-        if (bytes > e.baseline + GROWTH_THRESHOLD_BYTES) {
-            e.monotonicSamples++;
+        long growth = bytes - e.baseline;
+        boolean leak = growth >= GROWTH_THRESHOLD && e.consecutiveGrowth >= MIN_SAMPLES;
+
+        if (leak) {
             long now = System.nanoTime();
-            if (now - e.lastWarnNs > WARN_EVERY_NS) {
+            if (now - e.lastWarnNs > WARN_COOLDOWN_NS) {
                 e.lastWarnNs = now;
+                e.warnings++;
                 MGShaders.LOGGER.warn(
-                    "[MGShaders] possível vazamento '{}' — base {} KB, atual {} KB, pico {} KB, amostras={}",
-                    tag,
-                    e.baseline / 1024,
-                    bytes / 1024,
-                    e.peak / 1024,
-                    e.monotonicSamples);
+                    "[MGShaders] leak? '{}' +{} KB (cresc monotônico {}x, avisos={})",
+                    tag, growth / 1024, e.consecutiveGrowth, e.warnings);
             }
         }
-    }
-
-    public static String report() {
-        StringBuilder sb = new StringBuilder();
-        for (var en : MAP.entrySet()) {
-            Entry e = en.getValue();
-            sb.append(en.getKey()).append('=')
-              .append((e.peak - e.baseline) / 1024).append("KB; ");
-        }
-        return sb.toString();
     }
 
     public static void reset() { MAP.clear(); }

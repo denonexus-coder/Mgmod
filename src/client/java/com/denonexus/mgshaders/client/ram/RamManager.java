@@ -5,121 +5,133 @@ import com.denonexus.mgshaders.client.profile.ChunkProfiler;
 import com.denonexus.mgshaders.client.profile.PipelineProfiler;
 
 /**
- * Gestor de RAM não-bloqueante.
+ * Gestor de RAM não-bloqueante v3.1.
  *
- * REGRAS (não violar):
- *   1. NUNCA chamar System.gc() nem Runtime.gc() — pausa stop-the-world
- *      de 150-400 ms no GE8320 + Cortex-A55, e ainda pior quando há swap ativo.
- *   2. Só encolher estruturas que nós controlamos (ChunkProfiler, PipelineProfiler).
- *   3. Reportar RSS/PSS/Swap reais do /proc — não estimativas.
- *   4. Se o heap Java passar de 85%, apenas logar. Quem decide GC é o ART.
+ * REGRAS:
+ *   1. NUNCA System.gc()
+ *   2. Só encolher estruturas próprias (ChunkProfiler, PipelineProfiler)
+ *   3. Reportar RSS/PSS/Swap reais de /proc
+ *   4. Se heap > 80%, apenas logar
+ *
+ * v3.1: freed = peakRss - currentRss (o "quanto caiu do pico", não acumulativo).
  */
 public final class RamManager {
 
-    private static final long SAMPLE_INTERVAL_NS = 5_000_000_000L;      // 5 s
-    private static final long CLEAN_INTERVAL_NS  = 30_000_000_000L;     // 30 s
-    private static final long HEAP_WARN_PCT      = 85L;
+    private static final long SAMPLE_NS = 5_000_000_000L;
+    private static final long CLEAN_NS  = 30_000_000_000L;
+    private static final long HEAP_WARN_PCT = 80L;
+    private static final long CG_WARN_PCT   = 85L;
 
-    // ── estado exposto pro HUD ──
-    private static volatile long rssKb       = 0;
-    private static volatile long swapKb      = 0;
-    private static volatile long javaUsedKb  = 0;
-    private static volatile long javaMaxKb   = 0;
-    private static volatile long javaFreedKb = 0;      // acumulado desta sessão
+    // estado exposto pro HUD
+    private static volatile long rssKb, pssKb, swapKb;
+    private static volatile long javaUsedKb, javaMaxKb;
+    private static volatile long peakRssKb;
 
-    // ── internos ──
-    private static long lastSampleNs = 0;
-    private static long lastCleanNs  = 0;
-    private static long peakUsedKb   = 0;
-    private static long cleanRuns    = 0;
+    // internos
+    private static long lastSampleNs, lastCleanNs, cleanRuns;
+    private static long rssAtCleanStart;
+
+    // caps adaptativos
+    private static volatile int capChunk = 4096;
+    private static volatile int capPipeline = 8192;
 
     private RamManager() {}
 
     public static void tick() {
         long now = System.nanoTime();
-
-        if (now - lastSampleNs >= SAMPLE_INTERVAL_NS) {
-            lastSampleNs = now;
-            sample();
-        }
-        if (now - lastCleanNs >= CLEAN_INTERVAL_NS) {
-            lastCleanNs = now;
-            clean();
-        }
+        if (now - lastSampleNs >= SAMPLE_NS) { lastSampleNs = now; sample(); }
+        if (now - lastCleanNs  >= CLEAN_NS)  { lastCleanNs  = now; clean();  }
     }
 
     private static void sample() {
         RamSnapshot s = RamSnapshot.read();
         rssKb  = s.rssKb;
+        pssKb  = s.hasPss() ? s.pssKb : s.rssKb;
         swapKb = s.swapKb;
+        if (rssKb > peakRssKb) peakRssKb = rssKb;
 
         Runtime rt = Runtime.getRuntime();
-        long used  = rt.totalMemory() - rt.freeMemory();
-        long max   = rt.maxMemory();
-        javaUsedKb = used / 1024;
-        javaMaxKb  = max  / 1024;
+        javaUsedKb = (rt.totalMemory() - rt.freeMemory()) / 1024;
+        javaMaxKb  = rt.maxMemory() / 1024;
 
-        if (javaUsedKb > peakUsedKb) peakUsedKb = javaUsedKb;
-
-        // Guarda-leak dos mapas que controlamos
-        LeakGuard.sample("chunkProfiler",  ChunkProfiler.estimatedBytes());
+        adaptCaps();
+        LeakGuard.sample("chunkProfiler",    ChunkProfiler.estimatedBytes());
         LeakGuard.sample("pipelineProfiler", PipelineProfiler.estimatedBytes());
 
         long usedPct = javaMaxKb > 0 ? (javaUsedKb * 100 / javaMaxKb) : 0;
         if (usedPct >= HEAP_WARN_PCT) {
             MGShaders.LOGGER.warn(
-                "[MGShaders] ram: heap {}/{} MB ({}%) rss={} MB swap={} MB",
-                javaUsedKb / 1024, javaMaxKb / 1024, usedPct,
-                rssKb / 1024, swapKb / 1024);
+                "[MGShaders] heap {}% ({}/{} MB) — {}",
+                usedPct, javaUsedKb / 1024, javaMaxKb / 1024, s.shortSummary());
+        }
+        if (s.hasCgroup()) {
+            long cgPct = s.cgroupUsageKb * 100 / s.cgroupLimitKb;
+            if (cgPct >= CG_WARN_PCT) {
+                MGShaders.LOGGER.warn(
+                    "[MGShaders] cgroup {}% ({} / {} MB) — {}",
+                    cgPct, s.cgroupUsageKb / 1024, s.cgroupLimitKb / 1024, s.shortSummary());
+            }
         }
     }
 
     private static void clean() {
-        long beforeKb = javaUsedKb;
+        long rssBefore = rssKb > 0 ? rssKb : RamSnapshot.read().rssKb;
+        long pssBefore = pssKb > 0 ? pssKb : rssBefore;
 
-        // encolhe só o que é nosso
+        ChunkProfiler.setCap(capChunk);
+        PipelineProfiler.setCap(capPipeline);
         ChunkProfiler.trim();
         PipelineProfiler.trim();
 
-        // amostra nova (sem forçar GC)
-        RamSnapshot s = RamSnapshot.read();
-        rssKb  = s.rssKb;
-        swapKb = s.swapKb;
-
-        Runtime rt = Runtime.getRuntime();
-        long usedAfterKb = (rt.totalMemory() - rt.freeMemory()) / 1024;
-        javaUsedKb = usedAfterKb;
-        if (javaUsedKb > peakUsedKb) peakUsedKb = javaUsedKb;
-
-        long freed = Math.max(0, beforeKb - usedAfterKb);
-        javaFreedKb += freed;
         cleanRuns++;
+        long freed = Math.max(0L, peakRssKb - rssBefore);
 
-        // Só loga quando liberou algo significativo (>256 KB)
-        if (freed > 256) {
+        // loga só nas duas primeiras vezes ou quando o delta for grande
+        long delta = rssAtCleanStart > 0 ? Math.abs(rssAtCleanStart - rssBefore) : 0;
+        if (delta > 512 || cleanRuns <= 2) {
             MGShaders.LOGGER.info(
-                "[MGShaders] ram clean #{} — freed {} KB, heap {}/{} MB, rss {} MB, swap {} MB",
-                cleanRuns, freed, javaUsedKb / 1024, javaMaxKb / 1024,
-                rssKb / 1024, swapKb / 1024);
+                "[MGShaders] ram clean #{} — rss={}M peak={}M (freed={}M), caps={}/{}, pss={}M",
+                cleanRuns, rssBefore / 1024, peakRssKb / 1024, freed / 1024,
+                capChunk, capPipeline, pssBefore / 1024);
         }
+        rssAtCleanStart = rssBefore;
     }
 
+    private static void adaptCaps() {
+        if (javaMaxKb == 0) return;
+        long pct = javaUsedKb * 100 / javaMaxKb;
+        if      (pct >= 80) { capChunk = 1024; capPipeline = 2048;  }
+        else if (pct >= 60) { capChunk = 2048; capPipeline = 4096;  }
+        else if (pct >= 40) { capChunk = 4096; capPipeline = 8192;  }
+        else                { capChunk = 8192; capPipeline = 16384; }
+    }
+
+    // ── API pro HUD ──
     public static long rssKb()       { return rssKb; }
+    public static long pssKb()       { return pssKb; }
     public static long swapKb()      { return swapKb; }
     public static long javaUsedKb()  { return javaUsedKb; }
     public static long javaMaxKb()   { return javaMaxKb; }
-    public static long javaFreedKb() { return javaFreedKb; }
-    public static long peakUsedKb()  { return peakUsedKb; }
+    public static long peakRssKb()   { return peakRssKb; }
 
-    /** Formata "213M/550M" */
-    public static String heapShort() {
-        return (javaUsedKb / 1024) + "M/" + (javaMaxKb / 1024) + "M";
+    /** Freed = quanto o RSS já caiu do pico desde o boot. */
+    public static long javaFreedKb() {
+        return Math.max(0L, peakRssKb - rssKb);
     }
 
-    /** Formata "+14M" (liberado desde início da sessão) */
+    public static String heapShort() { return (javaUsedKb / 1024) + "M/" + (javaMaxKb / 1024) + "M"; }
+
     public static String freedShort() {
-        long kb = javaFreedKb;
+        long kb = javaFreedKb();
         if (kb < 1024) return kb + "K";
         return (kb / 1024) + "M";
+    }
+
+    public static int capChunk()    { return capChunk; }
+    public static int capPipeline() { return capPipeline; }
+
+    public static void reset() {
+        peakRssKb = 0; cleanRuns = 0; rssAtCleanStart = 0;
+        LeakGuard.reset();
     }
 }
