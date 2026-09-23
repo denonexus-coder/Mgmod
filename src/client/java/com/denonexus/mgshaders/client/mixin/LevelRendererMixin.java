@@ -41,7 +41,6 @@ public class LevelRendererMixin {
             boolean shouldRenderSky,
             CallbackInfo ci
     ) {
-        MGShaders.LOGGER.info("[{}] LevelRenderer.renderLevel hook active",
-                              MGShaders.MOD_NAME);
+        // hook ativo — sem log por frame (evita spam)
     }
 }

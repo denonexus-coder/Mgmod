@@ -60,15 +60,40 @@ public final class NativeChunkLoader {
     }
 
     private static Path extractNativeIfNeeded() throws Exception {
-        // Caminho do .so empacotado no jar
+        Path tmp = Files.createTempDirectory("mgshaders_native");
+
+        // 1) Deps primeiro (libz.so.1 é dependência direta; libc++_shared se presente)
+        String[] deps = { "libz.so.1", "libc++_shared.so" };
+        for (String dep : deps) {
+            var depUrl = NativeChunkLoader.class.getResource("/natives/linux-aarch64/" + dep);
+            if (depUrl == null) continue;
+            Path depOut = tmp.resolve(dep);
+            try (var in = depUrl.openStream()) {
+                Files.copy(in, depOut);
+            }
+            depOut.toFile().setReadable(true);
+            depOut.toFile().setExecutable(true);
+            depOut.toFile().deleteOnExit();
+            // Pre-load explícito — registra SONAME no linker
+            try {
+                System.load(depOut.toAbsolutePath().toString());
+                MGShaders.LOGGER.info("[MGShaders] NativeChunkLoader — pre-loaded {}", dep);
+            } catch (UnsatisfiedLinkError e) {
+                MGShaders.LOGGER.warn("[MGShaders] NativeChunkLoader — pre-load {} falhou: {}",
+                                      dep, e.getMessage());
+            }
+        }
+
+        // 2) Lib principal
         var url = NativeChunkLoader.class.getResource("/natives/linux-aarch64/libnativechunk.so");
         if (url == null) throw new IllegalStateException("libnativechunk.so não empacotada no jar");
 
-        Path tmp = Files.createTempDirectory("mgshaders_native");
         Path out = tmp.resolve("libnativechunk.so");
         try (var in = url.openStream()) {
             Files.copy(in, out);
         }
+        out.toFile().setReadable(true);
+        out.toFile().setExecutable(true);
         out.toFile().deleteOnExit();
         return out;
     }

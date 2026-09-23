@@ -87,4 +87,16 @@ public final class PipelineProfiler {
             a[Math.min((int)(a.length * 0.95), a.length - 1)] / 1_000_000.0,
             a[a.length - 1] / 1_000_000.0);
     }
+
+    /** Limita o mapa de chunks rastreados — chamado periodicamente pelo RamCleaner. */
+    public static void trim() {
+        final int MAX = 8192;
+        if (chunks.size() <= MAX) return;
+        int toRemove = chunks.size() - (MAX / 2);
+        var it = chunks.keySet().iterator();
+        while (it.hasNext() && toRemove-- > 0) {
+            it.next();
+            it.remove();
+        }
+    }
 }

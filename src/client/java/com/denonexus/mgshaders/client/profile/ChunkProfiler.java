@@ -219,4 +219,20 @@ public final class ChunkProfiler {
             (double)s.ms(s.avg()), (double)s.ms(s.min()), (double)s.ms(s.max()),
             (double)s.ms(s.p50()), (double)s.ms(s.p95()), (double)s.ms(s.p99()));
     }
+
+    /** Limita o tamanho das listas — chamado periodicamente pelo RamCleaner. */
+    public static void trim() {
+        final int MAX = 4096;
+        synchronized (ChunkProfiler.class) {
+            if (queueWaitNs.size() > MAX) queueWaitNs.subList(0, queueWaitNs.size() - MAX).clear();
+            if (compileNs.size()   > MAX) compileNs.subList(0, compileNs.size() - MAX).clear();
+            if (totalNs.size()     > MAX) totalNs.subList(0, totalNs.size() - MAX).clear();
+            if (uploadNs.size()    > MAX) uploadNs.subList(0, uploadNs.size() - MAX).clear();
+        }
+        if (outliers.size() > 50) {
+            synchronized (outliers) {
+                while (outliers.size() > 50) outliers.remove(0);
+            }
+        }
+    }
 }
