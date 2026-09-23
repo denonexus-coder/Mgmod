@@ -1,6 +1,7 @@
 package com.denonexus.mgshaders.client;
 
 import com.denonexus.mgshaders.MGShaders;
+import com.denonexus.mgshaders.client.bench.GpuBench;
 import com.denonexus.mgshaders.client.hud.MgHudOverlay;
 import com.denonexus.mgshaders.client.profile.ChunkProfiler;
 import com.denonexus.mgshaders.client.profile.PipelineProfiler;
@@ -28,6 +29,7 @@ public class MGShadersClient implements ClientModInitializer {
                 MGShaders.MOD_NAME, NativeChunkLoader.isAvailable());
 
         MgHudOverlay.register();
+        GpuBench.register();
 
         toggleHudKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.mgshaders.toggle_hud",
