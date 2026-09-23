@@ -1,6 +1,7 @@
 package com.denonexus.mgshaders.client.mixin;
 
 import com.denonexus.mgshaders.client.profile.ServerTickProfiler;
+import com.denonexus.mgshaders.client.profile.TpsTracker;
 import net.minecraft.server.MinecraftServer;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -14,6 +15,7 @@ public class ServerTickMixin {
 
     @Inject(method = "tickServer", at = @At("HEAD"))
     private void mgshaders_onTickHead(CallbackInfo ci) {
+        TpsTracker.onServerTick();
         T_START.set(System.nanoTime());
     }
 

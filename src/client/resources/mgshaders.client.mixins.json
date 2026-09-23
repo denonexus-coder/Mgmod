@@ -9,7 +9,9 @@
         "UploadMixin",
         "ServerTickMixin",
         "ChunkLoadMixin",
-        "CompileTimingMixin"
+        "CompileTimingMixin",
+        "EntitiesRenderMixin",
+        "ShaderCompileMixin"
     ],
     "injectors": {
         "defaultRequire": 1
