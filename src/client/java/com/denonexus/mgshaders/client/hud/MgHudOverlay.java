@@ -1,6 +1,7 @@
 package com.denonexus.mgshaders.client.hud;
 
 import com.denonexus.mgshaders.MGShaders;
+import com.denonexus.mgshaders.client.budget.FrameBudget;
 import com.denonexus.mgshaders.client.profile.FpsTracker;
 import com.denonexus.mgshaders.client.profile.RenderProfiler;
 import com.denonexus.mgshaders.client.profile.StatsWindow;
@@ -44,6 +45,7 @@ public final class MgHudOverlay {
 
     private static void render(GuiGraphics ctx, DeltaTracker tick) {
         FpsTracker.onFrame();
+        FrameBudget.reportFps(FpsTracker.current());
 
         if (!enabled) return;
         Minecraft mc = Minecraft.getInstance();

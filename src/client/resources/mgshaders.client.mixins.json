@@ -11,7 +11,9 @@
         "ChunkLoadMixin",
         "CompileTimingMixin",
         "EntitiesRenderMixin",
-        "ShaderCompileMixin"
+        "ShaderCompileMixin",
+        "LightBudgetMixin",
+        "EntityCullMixin"
     ],
     "injectors": {
         "defaultRequire": 1
