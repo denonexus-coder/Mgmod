@@ -1,131 +1,228 @@
-// native_chunk.cpp — leitor de chunk .mca via FFM
-// Formato .mca:
-//   Header: 8 KB (1024 * 4-byte offsets + 1024 * 4-byte timestamps)
-//   Chunk: 4-byte length (big-endian) + 1-byte compression + payload
-//   Compression: 1=gzip, 2=zlib, 3=uncompressed, 4=LZ4
+// native_chunk.cpp v2 — leitor .mca ultra-rápido
+// libdeflate + arena + cache RAM + LRU + FFM-friendly
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <zlib.h>
+#include <cstddef>
+#include <libdeflate.h>
 
-#if defined(_WIN32)
-  #define EXPORT __declspec(dllexport)
-#else
-  #define EXPORT __attribute__((visibility("default")))
-#endif
+#define EXPORT extern "C" __attribute__((visibility("default")))
 
-extern "C" {
+struct Arena { uint8_t* base; size_t cap; size_t used; size_t peak; };
+static Arena g_ent_arena;
 
-// Lê um chunk completo de um .mca.
-// Retorna bytes escritos em out, ou negativo em caso de erro.
-//   -1 = não conseguiu abrir arquivo
-//   -2 = chunk não existe no arquivo (offset = 0)
-//   -3 = falha de leitura
-//   -4 = compressão não suportada (LZ4, etc.)
-//   -5 = falha de descompressão zlib
-EXPORT int64_t mg_read_chunk(const char* path,
-                             int32_t chunk_x, int32_t chunk_z,
-                             uint8_t* out, int64_t out_cap) {
-    if (!path || !out || out_cap <= 0) return -1;
-
-    FILE* f = fopen(path, "rb");
-    if (!f) return -1;
-
-    // Offset entry = (chunk_x & 31) + (chunk_z & 31) * 32
-    int lx = chunk_x & 31;
-    int lz = chunk_z & 31;
-    int entry_index = lx + lz * 32;
-
-    // Lê a entry de offset (4 bytes, big-endian)
-    long header_pos = (long)entry_index * 4;
-    if (fseek(f, header_pos, SEEK_SET) != 0) { fclose(f); return -3; }
-
-    uint8_t off_b[4];
-    if (fread(off_b, 1, 4, f) != 4) { fclose(f); return -3; }
-
-    // 3 bytes = offset em setores; 1 byte = número de setores
-    uint32_t sector_off = ((uint32_t)off_b[0] << 16) |
-                          ((uint32_t)off_b[1] << 8)  |
-                           (uint32_t)off_b[2];
-    uint8_t sector_count = off_b[3];
-
-    if (sector_off == 0 || sector_count == 0) { fclose(f); return -2; }
-
-    // Vai para o início do chunk
-    if (fseek(f, (long)sector_off * 4096L, SEEK_SET) != 0) { fclose(f); return -3; }
-
-    // Lê 5 bytes de cabeçalho: 4-byte length + 1-byte compression
-    uint8_t header[5];
-    if (fread(header, 1, 5, f) != 5) { fclose(f); return -3; }
-
-    uint32_t length = ((uint32_t)header[0] << 24) |
-                      ((uint32_t)header[1] << 16) |
-                      ((uint32_t)header[2] << 8)  |
-                       (uint32_t)header[3];
-    uint8_t compression = header[4];
-
-    if (length <= 1) { fclose(f); return -2; }
-    if (length > (uint32_t)sector_count * 4096u) { fclose(f); return -3; }
-
-    uint32_t payload_len = length - 1; // desconta o byte de compression
-    if (payload_len == 0 || payload_len > out_cap) { fclose(f); return -5; }
-
-    // Lê payload direto para o buffer de saída (se for raw, é o resultado)
-    if (compression == 3) {
-        size_t rd = fread(out, 1, payload_len, f);
-        fclose(f);
-        return (rd == payload_len) ? (int64_t)rd : -3;
-    }
-
-    // Para zlib/gzip, precisa de buffer temporário
-    uint8_t* tmp = (uint8_t*)malloc(payload_len);
-    if (!tmp) { fclose(f); return -5; }
-    size_t rd = fread(tmp, 1, payload_len, f);
-    fclose(f);
-    if (rd != payload_len) { free(tmp); return -3; }
-
-    if (compression == 2 || compression == 1) {
-        // zlib (2) ou gzip (1) — usar zlib com wbits corretos
-        z_stream zs;
-        memset(&zs, 0, sizeof(zs));
-        int wbits = (compression == 1) ? 16 + MAX_WBITS : MAX_WBITS;
-        if (inflateInit2(&zs, wbits) != Z_OK) { free(tmp); return -5; }
-
-        zs.next_in  = tmp;
-        zs.avail_in = (uInt)payload_len;
-        zs.next_out = out;
-        zs.avail_out = (uInt)out_cap;
-
-        int ret = inflate(&zs, Z_FINISH);
-        int64_t written = (int64_t)((uint8_t*)zs.next_out - out);
-        inflateEnd(&zs);
-        free(tmp);
-
-        if (ret != Z_STREAM_END) return -5;
-        return written;
-    }
-
-    free(tmp);
-    return -4; // LZ4 ou outro — não suportado
+static void arena_init(Arena* a, size_t cap) {
+    a->base = (uint8_t*)malloc(cap);
+    a->cap = cap; a->used = 0; a->peak = 0;
+}
+static void* arena_alloc(Arena* a, size_t n) {
+    n = (n + 15) & ~(size_t)15;
+    if (a->used + n > a->cap) return nullptr;
+    void* p = a->base + a->used;
+    a->used += n;
+    if (a->used > a->peak) a->peak = a->used;
+    return p;
 }
 
-// Versão de teste: só conta quantos chunks válidos existem no arquivo.
+struct CacheEnt {
+    int32_t cx, cz;
+    uint32_t len;
+    uint8_t* data;
+    int ref;
+    CacheEnt* hnext;
+    CacheEnt* lru_prev;
+    CacheEnt* lru_next;
+};
+
+#define N_BUCKETS (1u << 17)
+
+static CacheEnt* g_buckets[N_BUCKETS] = {0};
+static CacheEnt* g_lru_head = nullptr;
+static CacheEnt* g_lru_tail = nullptr;
+static size_t    g_n_chunks = 0;
+static size_t    g_max_chunks = 20000;
+static uint64_t  g_hits = 0, g_misses = 0, g_evicts = 0;
+
+static inline uint32_t hash_key(int32_t cx, int32_t cz) {
+    uint64_t h = (uint64_t)(uint32_t)cx * 0x9E3779B97F4A7C15ull;
+    h ^= (uint64_t)(uint32_t)cz * 0xC2B2AE3D27D4EB4Full;
+    return (uint32_t)(h ^ (h >> 32)) & (N_BUCKETS - 1);
+}
+
+static CacheEnt* cache_find(int32_t cx, int32_t cz) {
+    uint32_t b = hash_key(cx, cz);
+    for (CacheEnt* e = g_buckets[b]; e; e = e->hnext)
+        if (e->cx == cx && e->cz == cz) return e;
+    return nullptr;
+}
+
+static void lru_unlink(CacheEnt* e) {
+    if (e->lru_prev) e->lru_prev->lru_next = e->lru_next; else g_lru_head = e->lru_next;
+    if (e->lru_next) e->lru_next->lru_prev = e->lru_prev; else g_lru_tail = e->lru_prev;
+}
+static void lru_push_front(CacheEnt* e) {
+    e->lru_prev = nullptr; e->lru_next = g_lru_head;
+    if (g_lru_head) g_lru_head->lru_prev = e;
+    g_lru_head = e;
+    if (!g_lru_tail) g_lru_tail = e;
+}
+static void hash_unlink(CacheEnt* e) {
+    uint32_t b = hash_key(e->cx, e->cz);
+    CacheEnt** pp = &g_buckets[b];
+    while (*pp && *pp != e) pp = &(*pp)->hnext;
+    if (*pp) *pp = e->hnext;
+}
+static void cache_evict() {
+    CacheEnt* e = g_lru_tail;
+    while (e && e->ref) {
+        e->ref = 0;
+        CacheEnt* prev = e->lru_prev;
+        lru_unlink(e); lru_push_front(e);
+        e = prev;
+    }
+    if (!e) return;
+    lru_unlink(e); hash_unlink(e);
+    free(e->data);
+    g_evicts++; g_n_chunks--;
+}
+
+static libdeflate_decompressor* g_decomp = nullptr;
+static libdeflate_compressor*   g_comp   = nullptr;
+
+struct McaEntry { uint32_t sector_off; uint8_t sector_cnt; };
+
+static bool read_mca_header(FILE* f, int cx, int cz, McaEntry* out) {
+    int idx = (cx & 31) + (cz & 31) * 32;
+    if (fseek(f, (long)idx * 4, SEEK_SET) != 0) return false;
+    uint8_t b[4];
+    if (fread(b, 1, 4, f) != 4) return false;
+    out->sector_off = ((uint32_t)b[0] << 16) | ((uint32_t)b[1] << 8) | b[2];
+    out->sector_cnt = b[3];
+    return true;
+}
+
+static int64_t decompress_raw(FILE* f, uint32_t sector_off, uint8_t sector_cnt,
+                              uint8_t* out, int64_t out_cap) {
+    if (fseek(f, (long)sector_off * 4096L, SEEK_SET) != 0) return -1;
+    uint8_t hdr[5];
+    if (fread(hdr, 1, 5, f) != 5) return -1;
+    uint32_t length = ((uint32_t)hdr[0] << 24) | ((uint32_t)hdr[1] << 16) |
+                      ((uint32_t)hdr[2] << 8) | hdr[3];
+    uint8_t comp = hdr[4];
+    if (length <= 1) return -1;
+    if (length > (uint32_t)sector_cnt * 4096u) return -1;
+    uint32_t clen = length - 1;
+    if (comp == 3) {
+        if ((int64_t)clen > out_cap) return -1;
+        size_t rd = fread(out, 1, clen, f);
+        return (rd == clen) ? (int64_t)clen : -1;
+    }
+    uint8_t* tmp = (uint8_t*)malloc(clen);
+    if (!tmp) return -1;
+    size_t rd = fread(tmp, 1, clen, f);
+    if (rd != clen) { free(tmp); return -1; }
+    size_t got = 0;
+    libdeflate_result rc;
+    if (comp == 2)      rc = libdeflate_zlib_decompress(g_decomp, tmp, clen, out, out_cap, &got);
+    else if (comp == 1) rc = libdeflate_gzip_decompress(g_decomp, tmp, clen, out, out_cap, &got);
+    else { free(tmp); return -4; }
+    free(tmp);
+    return (rc == LIBDEFLATE_SUCCESS) ? (int64_t)got : -5;
+}
+
+EXPORT int32_t mg_cache_init(uint32_t max_chunks) {
+    if (!g_decomp) g_decomp = libdeflate_alloc_decompressor();
+    if (!g_comp)   g_comp   = libdeflate_alloc_compressor(1);
+    g_max_chunks = max_chunks ? max_chunks : 20000;
+    arena_init(&g_ent_arena, 8 * 1024 * 1024);
+    return 0;
+}
+
+EXPORT void mg_cache_shutdown() {
+    for (size_t i = 0; i < N_BUCKETS; i++) {
+        CacheEnt* e = g_buckets[i];
+        while (e) { CacheEnt* n = e->hnext; free(e->data); e = n; }
+        g_buckets[i] = nullptr;
+    }
+    g_lru_head = g_lru_tail = nullptr;
+    g_n_chunks = 0;
+    if (g_decomp) { libdeflate_free_decompressor(g_decomp); g_decomp = nullptr; }
+    if (g_comp)   { libdeflate_free_compressor(g_comp);     g_comp   = nullptr; }
+    if (g_ent_arena.base) { free(g_ent_arena.base); g_ent_arena.base = nullptr; }
+}
+
+EXPORT int64_t mg_read_chunk(const char* path, int32_t cx, int32_t cz,
+                             uint8_t* out, int64_t out_cap) {
+    if (!path || !out || out_cap <= 0) return -1;
+    FILE* f = fopen(path, "rb");
+    if (!f) return -1;
+    McaEntry me;
+    if (!read_mca_header(f, cx, cz, &me) || me.sector_off == 0 || me.sector_cnt == 0) {
+        fclose(f); return -2;
+    }
+    int64_t n = decompress_raw(f, me.sector_off, me.sector_cnt, out, out_cap);
+    fclose(f);
+    return n;
+}
+
+EXPORT const uint8_t* mg_cache_get(const char* path, int32_t cx, int32_t cz,
+                                   uint32_t* out_len) {
+    CacheEnt* e = cache_find(cx, cz);
+    if (e) { e->ref = 1; *out_len = e->len; g_hits++; return e->data; }
+    g_misses++;
+    FILE* f = fopen(path, "rb");
+    if (!f) return nullptr;
+    McaEntry me;
+    if (!read_mca_header(f, cx, cz, &me) || me.sector_off == 0 || me.sector_cnt == 0) {
+        fclose(f); return nullptr;
+    }
+    uint8_t* buf = (uint8_t*)malloc(2 * 1024 * 1024);
+    if (!buf) { fclose(f); return nullptr; }
+    int64_t got = decompress_raw(f, me.sector_off, me.sector_cnt, buf, 2 * 1024 * 1024);
+    fclose(f);
+    if (got < 0) { free(buf); return nullptr; }
+
+    while (g_n_chunks >= g_max_chunks) cache_evict();
+    CacheEnt* ne = (CacheEnt*)arena_alloc(&g_ent_arena, sizeof(CacheEnt));
+    if (!ne) return nullptr;
+    ne->cx = cx; ne->cz = cz; ne->len = (uint32_t)got; ne->data = buf; ne->ref = 1;
+    uint32_t b = hash_key(cx, cz);
+    ne->hnext = g_buckets[b];
+    g_buckets[b] = ne;
+    lru_push_front(ne);
+    g_n_chunks++;
+    *out_len = ne->len;
+    return ne->data;
+}
+
+EXPORT void mg_cache_prefetch(const char* path, int32_t cx, int32_t cz) {
+    if (cache_find(cx, cz)) return;
+    FILE* f = fopen(path, "rb");
+    if (!f) return;
+    McaEntry me;
+    read_mca_header(f, cx, cz, &me);
+    fclose(f);
+}
+
+EXPORT void mg_cache_stats(uint64_t* hits, uint64_t* misses, uint64_t* evicts, size_t* n) {
+    if (hits)   *hits = g_hits;
+    if (misses) *misses = g_misses;
+    if (evicts) *evicts = g_evicts;
+    if (n)      *n = g_n_chunks;
+}
+
 EXPORT int32_t mg_count_chunks(const char* path) {
     FILE* f = fopen(path, "rb");
     if (!f) return -1;
-    uint8_t header[4096];
-    size_t rd = fread(header, 1, 4096, f);
+    uint8_t hdr[4096];
+    size_t rd = fread(hdr, 1, 4096, f);
     fclose(f);
     if (rd != 4096) return -1;
-    int count = 0;
+    int c = 0;
     for (int i = 0; i < 1024; i++) {
-        uint32_t off = ((uint32_t)header[i*4] << 16) |
-                       ((uint32_t)header[i*4+1] << 8) |
-                        (uint32_t)header[i*4+2];
-        if (off != 0) count++;
+        uint32_t off = ((uint32_t)hdr[i*4] << 16) | ((uint32_t)hdr[i*4+1] << 8) | hdr[i*4+2];
+        if (off) c++;
     }
-    return count;
+    return c;
 }
-
-} // extern "C"

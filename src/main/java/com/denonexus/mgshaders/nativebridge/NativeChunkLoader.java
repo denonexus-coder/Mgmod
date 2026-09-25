@@ -19,6 +19,7 @@ public final class NativeChunkLoader {
 
     private static MethodHandle hReadChunk;
     private static MethodHandle hCountChunks;
+    private static MethodHandle hInflate;
 
     private NativeChunkLoader() {}
 
@@ -49,6 +50,17 @@ public final class NativeChunkLoader {
                 lookup.find("mg_count_chunks").orElseThrow(),
                 FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS)
             );
+            hInflate = linker.downcallHandle(
+                lookup.find("mg_inflate_auto").orElseThrow(),
+                FunctionDescriptor.of(
+                    ValueLayout.JAVA_LONG,
+                    ValueLayout.ADDRESS,
+                    ValueLayout.JAVA_LONG,
+                    ValueLayout.ADDRESS,
+                    ValueLayout.JAVA_LONG
+                )
+            );
+
 
             available = true;
             reason = null;
@@ -138,4 +150,27 @@ public final class NativeChunkLoader {
             return -1;
         }
     }
+
+    /**
+     * Descomprime zlib/gzip usando libdeflate.
+     * Retorna null se falhar — caller deve usar fallback.
+     */
+    public static byte[] inflate(byte[] compressed) {
+        if (!available || hInflate == null || compressed == null || compressed.length == 0)
+            return null;
+        int cap = Math.max(64 * 1024, compressed.length * 32);
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment src = arena.allocate(compressed.length);
+            MemorySegment.copy(compressed, 0, src, ValueLayout.JAVA_BYTE, 0, compressed.length);
+            MemorySegment out = arena.allocate(cap);
+            long n = (long) hInflate.invokeExact(
+                src, (long) compressed.length, out, (long) cap);
+            if (n < 0 || n > cap) return null;
+            return out.asSlice(0, n).toArray(ValueLayout.JAVA_BYTE);
+        } catch (Throwable t) {
+            MGShaders.LOGGER.debug("[MGShaders] inflate falhou: {}", t.getMessage());
+            return null;
+        }
+    }
+
 }
