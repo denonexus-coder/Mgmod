@@ -88,15 +88,9 @@ public final class PipelineProfiler {
             a[a.length - 1] / 1_000_000.0);
     }
 
-    private static volatile int capMax = 8192;
-
-    public static void setCap(int c) {
-        if (c > 0) capMax = c;
-    }
-
     /** Limita o mapa de chunks rastreados — chamado periodicamente pelo RamCleaner. */
     public static void trim() {
-        final int MAX = capMax;
+        final int MAX = 8192;
         if (chunks.size() <= MAX) return;
         int toRemove = chunks.size() - (MAX / 2);
         var it = chunks.keySet().iterator();

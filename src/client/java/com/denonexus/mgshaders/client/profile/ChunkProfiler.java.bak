@@ -220,15 +220,9 @@ public final class ChunkProfiler {
             (double)s.ms(s.p50()), (double)s.ms(s.p95()), (double)s.ms(s.p99()));
     }
 
-    private static volatile int capMax = 4096;
-
-    public static void setCap(int c) {
-        if (c > 0) capMax = c;
-    }
-
     /** Limita o tamanho das listas — chamado periodicamente pelo RamCleaner. */
     public static void trim() {
-        final int MAX = capMax;
+        final int MAX = 4096;
         synchronized (ChunkProfiler.class) {
             if (queueWaitNs.size() > MAX) queueWaitNs.subList(0, queueWaitNs.size() - MAX).clear();
             if (compileNs.size()   > MAX) compileNs.subList(0, compileNs.size() - MAX).clear();
