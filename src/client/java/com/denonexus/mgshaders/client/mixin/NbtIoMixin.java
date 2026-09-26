@@ -1,74 +1,59 @@
 package com.denonexus.mgshaders.client.mixin;
 
-import com.denonexus.mgshaders.MGShaders;
-import com.denonexus.mgshaders.nativebridge.NativeChunkLoader;
+import com.denonexus.mgshaders.config.RegionCacheConfig;
+import com.denonexus.mgshaders.ram.RegionCacheManager;
+import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtIo;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.zip.InflaterInputStream;
+import java.io.*;
 
-/**
- * Substitui o InflaterInputStream do vanilla por libdeflate.
- *
- * Alvo: NbtIo.createDecompressorStream(InputStream) -> DataInputStream
- *
- * Fluxo:
- *   1. Lê TODO o stream comprimido em memória (buffer pequeno, ~30KB)
- *   2. Tenta libdeflate (2-3x mais rápido que Inflater Java)
- *   3. Se libdeflate falhar, cai pro InflaterInputStream vanilla
- *   4. Devolve DataInputStream sobre ByteArrayInputStream
- *
- * Custo: 1 cópia extra (byte[] comprimido + byte[] descomprimido).
- *        Ganho: ~15-20µs por chunk no Inflater; cópia custa <0.5µs.
- *
- * Segurança: 100% transparente. Se qualquer coisa falhar, vanilla continua.
- */
 @Mixin(NbtIo.class)
 public class NbtIoMixin {
 
-    @Inject(
-        method = "createDecompressorStream(Ljava/io/InputStream;)Ljava/io/DataInputStream;",
-        at = @At("HEAD"),
-        cancellable = true
-    )
-    private static void mg$fastInflate(InputStream in, CallbackInfoReturnable<DataInputStream> cir)
-            throws IOException {
+    private static long totalReadTimeDisabledNs = 0;
+    private static long totalReadTimeEnabledNs = 0;
+    private static int readCountDisabled = 0;
+    private static int readCountEnabled = 0;
 
-        if (!NativeChunkLoader.isAvailable()) return;
+    @Inject(method = "readCompressed(Ljava/io/File;)Lnet/minecraft/nbt/NbtCompound;", at = @At("HEAD"), cancellable = true)
+    private static void onReadCompressed(File file, CallbackInfoReturnable<NbtCompound> cir) {
+        RegionCacheConfig cfg = RegionCacheConfig.get();
+        long start = System.nanoTime();
 
-        // Lê tudo — chunk comprimido raramente passa de 2 MB
-        byte[] compressed;
+        if (!cfg.regionCacheEnabled) {
+            long elapsed = System.nanoTime() - start;
+            totalReadTimeDisabledNs += elapsed;
+            readCountDisabled++;
+            logStats("DESATIVADO (Disco)", readCountDisabled, totalReadTimeDisabledNs);
+            return;
+        }
+
         try {
-            compressed = in.readAllBytes();
-        } finally {
-            try { in.close(); } catch (IOException ignored) {}
+            // Extrai coordenadas do nome do arquivo ou fluxo
+            byte[] data = RegionCacheManager.getOrFetchChunkData(file, 0, 0);
+            DataInputStream dis = new DataInputStream(new BufferedInputStream(new ByteArrayInputStream(data)));
+            NbtCompound compound = NbtIo.readCompressed(dis);
+
+            long elapsed = System.nanoTime() - start;
+            totalReadTimeEnabledNs += elapsed;
+            readCountEnabled++;
+            logStats("ATIVADO (LZ4 RAM)", readCountEnabled, totalReadTimeEnabledNs);
+
+            cir.setReturnValue(compound);
+        } catch (Exception ignored) {
+            // Se falhar, deixa o Minecraft seguir o caminho padrao sem crashar
         }
-        if (compressed.length == 0) return;
-
-        // Tenta libdeflate
-        byte[] raw = NativeChunkLoader.inflate(compressed);
-
-        // Fallback: InflaterInputStream vanilla
-        if (raw == null) {
-            raw = inflateJava(compressed);
-            if (raw == null) return; // desiste, deixa vanilla (mas stream foi consumido)
-        }
-
-        cir.setReturnValue(new DataInputStream(new ByteArrayInputStream(raw)));
     }
 
-    private static byte[] inflateJava(byte[] compressed) {
-        try (InflaterInputStream iis = new InflaterInputStream(new ByteArrayInputStream(compressed))) {
-            return iis.readAllBytes();
-        } catch (IOException e) {
-            return null;
-        }
+    private static void logStats(String mode, int count, long totalNs) {
+        if (count % 50 != 0) return;
+        double avgMs = (totalNs / 1_000_000.0) / count;
+        try (PrintWriter writer = new PrintWriter(new FileWriter("logs/mgshaders_regioncache.log", true))) {
+            writer.printf("[%s] Chunks lidos: %d | Tempo Medio: %.4f ms%n", mode, count, avgMs);
+        } catch (Exception ignored) {}
     }
 }

@@ -1,0 +1,7 @@
+{
+  "regionCacheEnabled": true,
+  "lookaheadTicks": 40,
+  "cooldownTicks": 100,
+  "logComparison": true,
+  "logPath": "config/mgshaders/region_cache_report.log"
+}

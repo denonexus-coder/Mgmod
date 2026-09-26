@@ -1,58 +1,27 @@
 package com.denonexus.mgshaders.client;
 
-import com.denonexus.mgshaders.MGShaders;
-import com.denonexus.mgshaders.client.bench.GpuBench;
-import com.denonexus.mgshaders.client.hud.MgHudOverlay;
-import com.denonexus.mgshaders.client.profile.ChunkProfiler;
-import com.denonexus.mgshaders.client.profile.PipelineProfiler;
-import com.denonexus.mgshaders.client.profile.ServerTickProfiler;
-import com.denonexus.mgshaders.client.ram.RamManager;
-import com.denonexus.mgshaders.nativebridge.NativeChunkLoader;
-
-import com.mojang.blaze3d.platform.InputConstants;
+import com.denonexus.mgshaders.ram.RegionCacheManager;
 import net.fabricmc.api.ClientModInitializer;
-import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
-import net.minecraft.client.KeyMapping;
-import org.lwjgl.glfw.GLFW;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
+import net.minecraft.client.network.ClientPlayerEntity;
 
 public class MGShadersClient implements ClientModInitializer {
-
-    private static KeyMapping toggleHudKey;
-
     @Override
     public void onInitializeClient() {
-        MGShaders.LOGGER.info("[{}] onInitializeClient", MGShaders.MOD_NAME);
-
-        NativeChunkLoader.init();
-        MGShaders.LOGGER.info("[{}] NativeChunkLoader available={}",
-                MGShaders.MOD_NAME, NativeChunkLoader.isAvailable());
-
-        MgHudOverlay.register();
-        GpuBench.register();
-
-        toggleHudKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-                "key.mgshaders.toggle_hud",
-                InputConstants.Type.KEYSYM,
-                GLFW.GLFW_KEY_F6,
-                KeyMapping.Category.MISC
-        ));
-
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
-            while (toggleHudKey.consumeClick()) {
-                MgHudOverlay.toggle();
+            if (client.player != null) {
+                ClientPlayerEntity player = client.player;
+                double px = player.getX();
+                double pz = player.getZ();
+                double vx = player.getVelocity().x;
+                double vz = player.getVelocity().z;
+                RegionCacheManager.onTick(px, pz, vx, vz);
             }
-            RamManager.tick();
         });
 
-        ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
-            MGShaders.LOGGER.info("[{}] flushing all profiles", MGShaders.MOD_NAME);
-            ChunkProfiler.flush();
-            ServerTickProfiler.flush();
-            PipelineProfiler.flush();
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+            RegionCacheManager.onWorldUnload();
         });
-
-        MGShaders.LOGGER.info("[{}] Ready (phase 0.5 + HUD)", MGShaders.MOD_NAME);
     }
 }
