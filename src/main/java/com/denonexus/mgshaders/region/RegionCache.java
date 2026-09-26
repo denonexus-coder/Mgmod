@@ -63,6 +63,13 @@ public final class RegionCache {
         return region;
     }
 
+    public void clear() {
+        for (Region region : regions.values()) {
+            region.clear();
+        }
+        regions.clear();
+    }
+
     public Region oldestOutside(
             Set<RegionPos> protectedRegions
     ) {

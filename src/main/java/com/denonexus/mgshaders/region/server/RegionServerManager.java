@@ -9,7 +9,6 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerChunkCache;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.server.level.TicketType;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
@@ -58,21 +57,9 @@ public final class RegionServerManager {
      */
     private static final int LOOKAHEAD_TICKS = 10;
 
-    /*
-     * No timeout: the ticket remains until we explicitly remove it.
-     */
-    private static final TicketType<ChunkPos> REGION_TICKET =
-            TicketType.create(
-                    "mgshaders_region",
-                    Comparator.comparingLong(ChunkPos::toLong)
-            );
-
     private final MinecraftServer server;
 
     private final Map<ServerLevel, RegionCache> caches =
-            new IdentityHashMap<>();
-
-    private final Map<ServerLevel, Set<Long>> pinned =
             new IdentityHashMap<>();
 
     private final Map<UUID, Motion> motion =
@@ -121,23 +108,6 @@ public final class RegionServerManager {
 
     public void stop() {
         running = false;
-
-        for (Map.Entry<ServerLevel, Set<Long>> entry :
-                pinned.entrySet()) {
-
-            ServerChunkCache source =
-                    entry.getKey().getChunkSource();
-
-            for (long key : entry.getValue()) {
-                source.removeTicketWithRadius(
-                        REGION_TICKET,
-                        new ChunkPos(key),
-                        TICKET_RADIUS
-                );
-            }
-        }
-
-        pinned.clear();
 
         for (RegionCache cache : caches.values()) {
             cache.clear();
@@ -261,14 +231,6 @@ public final class RegionServerManager {
                     );
                 }
             }
-
-            /*
-             * Real vanilla DistanceManager ticket path.
-             */
-            updateTickets(
-                    level,
-                    wanted
-            );
 
             /*
              * Closest / forward chunks first.
@@ -436,62 +398,6 @@ public final class RegionServerManager {
                                 score
                         )
                 );
-            }
-        }
-    }
-
-    private void updateTickets(
-            ServerLevel level,
-            Set<Long> wanted
-    ) {
-
-        Set<Long> old =
-                pinned.computeIfAbsent(
-                        level,
-                        k -> new HashSet<>()
-                );
-
-        /*
-         * Add real vanilla loading tickets.
-         */
-        for (long key : wanted) {
-
-            if (old.add(key)) {
-
-                level.getChunkSource()
-                        .addTicketWithRadius(
-                                REGION_TICKET,
-                                new ChunkPos(key),
-                                TICKET_RADIUS
-                        );
-            }
-        }
-
-        /*
-         * Remove tickets that are no longer
-         * in the current/predicted window.
-         *
-         * Vanilla then handles normal lifecycle,
-         * saving and unloading.
-         */
-        Iterator<Long> iterator =
-                old.iterator();
-
-        while (iterator.hasNext()) {
-
-            long key =
-                    iterator.next();
-
-            if (!wanted.contains(key)) {
-
-                level.getChunkSource()
-                        .removeTicketWithRadius(
-                                REGION_TICKET,
-                                new ChunkPos(key),
-                                TICKET_RADIUS
-                        );
-
-                iterator.remove();
             }
         }
     }
