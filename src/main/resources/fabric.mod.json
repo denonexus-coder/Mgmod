@@ -12,16 +12,13 @@
     "environment": "*",
     "entrypoints": {
         "main": [
-            "com.denonexus.mgshaders.MGShaders",
-            "com.denonexus.mgshaders.region.RegionSystem"
+            "com.denonexus.mgshaders.MGShaders"
         ],
         "client": [
-            "com.denonexus.mgshaders.client.MGShadersClient",
-            "com.denonexus.mgshaders.client.region.RegionSystemClient"
+            "com.denonexus.mgshaders.client.MGShadersClient"
         ]
     },
     "mixins": [
-        "mgshaders.mixins.json",
         {
             "config": "mgshaders.client.mixins.json",
             "environment": "client"
