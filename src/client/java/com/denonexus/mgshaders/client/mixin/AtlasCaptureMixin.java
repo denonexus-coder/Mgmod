@@ -3,6 +3,7 @@ package com.denonexus.mgshaders.client.mixin;
 import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.client.resources.model.AtlasManager;
 import net.minecraft.resources.Identifier;
+import net.minecraft.server.packs.resources.PreparableReloadListener;
 import net.fabricmc.loader.api.FabricLoader;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -12,6 +13,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.function.BiConsumer;
 
 @Mixin(AtlasManager.class)
@@ -27,13 +30,15 @@ public abstract class AtlasCaptureMixin {
             at = @At("RETURN")
     )
     private void mgshaders_captureAtlases(
-            Object sharedState,
-            Object preparationExecutor,
-            Object preparationBarrier,
-            Object reloadExecutor,
-            CallbackInfoReturnable<?> cir
+            PreparableReloadListener.SharedState sharedState,
+            Executor preparationExecutor,
+            PreparableReloadListener.PreparationBarrier preparationBarrier,
+            Executor reloadExecutor,
+            CallbackInfoReturnable<CompletableFuture<?>> cir
     ) {
-        cir.getReturnValue().thenRun(() -> {
+        CompletableFuture<?> reloadFuture = cir.getReturnValue();
+
+        reloadFuture.thenRun(() -> {
             try {
                 capture((AtlasManager) (Object) this);
             } catch (Throwable t) {
