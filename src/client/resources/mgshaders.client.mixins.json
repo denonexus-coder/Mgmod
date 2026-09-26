@@ -13,7 +13,8 @@
         "EntitiesRenderMixin",
         "ShaderCompileMixin",
         "LightBudgetMixin",
-        "EntityCullMixin"
+        "EntityCullMixin",
+        "AtlasCaptureMixin"
     ],
     "injectors": {
         "defaultRequire": 1
