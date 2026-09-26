@@ -4,9 +4,7 @@
     "version": "${version}",
     "name": "MGShaders",
     "description": "Custom rendering pipeline for PowerVR-based devices via MobileGlues",
-    "authors": [
-        "denonexus"
-    ],
+    "authors": ["denonexus"],
     "license": "LGPL-2.1-only",
     "icon": "assets/mgshaders/icon.png",
     "environment": "*",
@@ -21,7 +19,6 @@
         ]
     },
     "mixins": [
-        "mgshaders.mixins.json",
         {
             "config": "mgshaders.client.mixins.json",
             "environment": "client"

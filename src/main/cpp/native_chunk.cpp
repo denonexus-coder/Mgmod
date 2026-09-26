@@ -214,7 +214,7 @@ EXPORT void mg_cache_stats(uint64_t* hits, uint64_t* misses, uint64_t* evicts, s
 }
 
 
-// mg_inflate_auto: wrapper generico usado por NbtIoMixin via FFM.
+// LZ4 native bridge usado pelo Region System.
 // Detecta zlib vs gzip pelo cabecalho e descomprime via libdeflate.
 EXPORT int64_t mg_inflate_auto(const uint8_t* src, int64_t src_len,
                                 uint8_t* out, int64_t out_cap) {
@@ -239,7 +239,7 @@ EXPORT int64_t mg_inflate_auto(const uint8_t* src, int64_t src_len,
 // Diferenca para o cache por-chunk acima (mg_cache_get/mg_cache_prefetch):
 // aquele e reativo (busca sob demanda, chunk a chunk). Este e preditivo:
 // o Java decide, com base na direcao/velocidade do jogador, QUANDO carregar
-// uma regiao inteira ANTES do jogador chegar la (ver RegionCacheManager.java).
+// chunks individuais antecipados pelo Region System.
 //
 // Guarda os bytes ja descomprimidos (raw NBT), prontos para uso instantaneo.
 // Uma regiao cheia (1024 chunks reais raramente todos presentes) fica em

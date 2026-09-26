@@ -13,7 +13,8 @@
         "EntitiesRenderMixin",
         "ShaderCompileMixin",
         "LightBudgetMixin",
-        "EntityCullMixin"
+        "EntityCullMixin",
+        "NbtIoMixin"
     ],
     "injectors": {
         "defaultRequire": 1
