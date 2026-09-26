@@ -14,7 +14,12 @@
         "ShaderCompileMixin",
         "LightBudgetMixin",
         "EntityCullMixin",
-        "AtlasCaptureMixin"
+        "AtlasCaptureMixin",
+        "ServerBottleneckServerMixin",
+        "ServerBottleneckLevelMixin",
+        "ServerBottleneckChunkCacheMixin",
+        "ServerBottleneckDistanceMixin",
+        "ServerBottleneckBlockEntityMixin"
     ],
     "injectors": {
         "defaultRequire": 1
