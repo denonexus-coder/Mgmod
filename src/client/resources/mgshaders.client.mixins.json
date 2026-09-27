@@ -20,7 +20,20 @@
     "ServerBottleneckChunkCacheMixin",
     "ServerBottleneckDistanceMixin",
     "ServerBottleneckBlockEntityMixin",
-    "GameRendererTBDRLightMixin"
+    "GameRendererTBDRLightMixin",
+    "MGLevelRendererDrawMixin",
+    "MGPrepareChunkRendersMixin",
+    "MGVisibleSectionsMixin",
+    "MGSectionRenderDispatcherMixin",
+    "MGRenderSectionMixin",
+    "MGSectionCompilerMixin",
+    "MGRebuildTaskMixin",
+    "MGSectionMeshMixin",
+    "MGSectionBuffersMixin",
+    "MGUploadMixin",
+    "MGChunkSectionsToRenderMixin",
+    "MGClientLevelMixin",
+    "MGGameRendererMixin"
   ],
   "injectors": {
     "defaultRequire": 1
