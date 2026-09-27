@@ -44,8 +44,13 @@ public abstract class GameRendererTBDRLightMixin {
             boolean renderLevel,
             CallbackInfo ci
     ) {
+        if (!com.denonexus.mgshaders.client.config.MgshadersConfig.getInstance().shaders_enabled) {
+            return;
+        }
+        
         if (renderLevel && this.minecraft.level != null) {
             if (!MG_TBDR_LIGHT.equals(this.currentPostEffect())) {
+                com.denonexus.mgshaders.client.config.MgshadersConfig.log("Interceptando render() do GameRenderer para aplicar shader tbdr_light...");
                 this.setPostEffect(MG_TBDR_LIGHT);
             }
         } else if (MG_TBDR_LIGHT.equals(this.currentPostEffect())) {

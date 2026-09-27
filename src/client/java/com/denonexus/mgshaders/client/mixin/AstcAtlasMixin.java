@@ -34,9 +34,12 @@ public abstract class AstcAtlasMixin
     private void mgshaders_installAstcAtlas(
             CallbackInfo ci
     ) {
-        // ASTC temporariamente desativado
-        if (true) return;
+        if (!com.denonexus.mgshaders.client.config.MgshadersConfig.getInstance().astc_enabled) {
+            com.denonexus.mgshaders.client.config.MgshadersConfig.log("ASTC desativado via config, usando fluxo normal para uploadInitialContents");
+            return;
+        }
         
+        com.denonexus.mgshaders.client.config.MgshadersConfig.log("Interceptando uploadInitialContents para aplicar ASTC...");
         AstcAtlasManager.install(
                 (TextureAtlas) (Object) this
         );
@@ -50,13 +53,15 @@ public abstract class AstcAtlasMixin
     private void mgshaders_blockAstcAnimationUpload(
             CallbackInfo ci
     ) {
-        // ASTC temporariamente desativado
-        if (true) return;
+        if (!com.denonexus.mgshaders.client.config.MgshadersConfig.getInstance().astc_enabled) {
+            return;
+        }
 
         TextureAtlas atlas =
                 (TextureAtlas) (Object) this;
 
         if (AstcAtlasManager.isAstcManaged(atlas)) {
+            com.denonexus.mgshaders.client.config.MgshadersConfig.log("Interceptando uploadAnimationFrames para bloquear animações ASTC...");
             ci.cancel();
         }
     }

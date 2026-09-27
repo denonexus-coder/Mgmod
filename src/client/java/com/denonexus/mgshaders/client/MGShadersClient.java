@@ -16,7 +16,8 @@ public final class MGShadersClient
 
     @Override
     public void onInitializeClient() {
-
+        com.denonexus.mgshaders.client.config.MgshadersConfig.load();
+        
         /*
          * The ASTC resources are bundled inside the mod JAR.
          *
