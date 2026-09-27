@@ -33,7 +33,9 @@
     "MGUploadMixin",
     "MGChunkSectionsToRenderMixin",
     "MGClientLevelMixin",
-    "MGGameRendererMixin"
+    "MGGameRendererMixin",
+    "AstcAtlasMixin",
+    "GlTextureAccessMixin"
   ],
   "injectors": {
     "defaultRequire": 1
