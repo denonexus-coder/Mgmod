@@ -1,27 +1,28 @@
 {
-    "required": true,
-    "package": "com.denonexus.mgshaders.client.mixin",
-    "compatibilityLevel": "JAVA_21",
-    "client": [
-        "LevelRendererMixin",
-        "SectionCompilerMixin",
-        "RebuildTaskMixin",
-        "UploadMixin",
-        "ServerTickMixin",
-        "ChunkLoadMixin",
-        "CompileTimingMixin",
-        "EntitiesRenderMixin",
-        "ShaderCompileMixin",
-        "LightBudgetMixin",
-        "EntityCullMixin",
-        "AtlasCaptureMixin",
-        "ServerBottleneckServerMixin",
-        "ServerBottleneckLevelMixin",
-        "ServerBottleneckChunkCacheMixin",
-        "ServerBottleneckDistanceMixin",
-        "ServerBottleneckBlockEntityMixin"
-    ],
-    "injectors": {
-        "defaultRequire": 1
-    }
+  "required": true,
+  "package": "com.denonexus.mgshaders.client.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "LevelRendererMixin",
+    "SectionCompilerMixin",
+    "RebuildTaskMixin",
+    "UploadMixin",
+    "ServerTickMixin",
+    "ChunkLoadMixin",
+    "CompileTimingMixin",
+    "EntitiesRenderMixin",
+    "ShaderCompileMixin",
+    "LightBudgetMixin",
+    "EntityCullMixin",
+    "AtlasCaptureMixin",
+    "ServerBottleneckServerMixin",
+    "ServerBottleneckLevelMixin",
+    "ServerBottleneckChunkCacheMixin",
+    "ServerBottleneckDistanceMixin",
+    "ServerBottleneckBlockEntityMixin",
+    "GameRendererTBDRLightMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
 }

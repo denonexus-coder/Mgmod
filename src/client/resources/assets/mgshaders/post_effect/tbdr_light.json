@@ -1,0 +1,23 @@
+{
+  "targets": {},
+  "passes": [
+    {
+      "vertex_shader": "mgshaders:post/tbdr_light",
+      "fragment_shader": "mgshaders:post/tbdr_light",
+      "inputs": [
+        {
+          "sampler_name": "MainDepth",
+          "target": "minecraft:main",
+          "use_depth_buffer": true,
+          "bilinear": false
+        }
+      ],
+      "uniforms": {
+        "Globals": [],
+        "Lighting": [],
+        "Fog": []
+      },
+      "output": "minecraft:main"
+    }
+  ]
+}
