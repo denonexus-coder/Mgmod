@@ -1,7 +1,6 @@
 package com.denonexus.mgshaders.client.astc;
 
 import com.mojang.blaze3d.systems.GpuDevice;
-import com.denonexus.mgshaders.client.mixin.AstcAtlasMixinAccess;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.textures.GpuTexture;
 import com.mojang.blaze3d.textures.GpuTextureView;
@@ -11,7 +10,6 @@ import org.lwjgl.opengl.GL21C;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.ModContainer;
 import net.minecraft.client.renderer.texture.TextureAtlas;
-import net.minecraft.resources.Identifier;
 import org.lwjgl.opengl.GL11C;
 import org.lwjgl.opengl.GL12C;
 import org.lwjgl.opengl.GL13C;
@@ -27,7 +25,6 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.IdentityHashMap;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 
 /**

@@ -1,6 +1,7 @@
 package com.denonexus.mgshaders.client.mixin;
 
 import com.denonexus.mgshaders.client.astc.AstcAtlasManager;
+import com.denonexus.mgshaders.client.astc.AstcAtlasMixinAccess;
 import com.mojang.blaze3d.textures.GpuTextureView;
 import net.minecraft.client.renderer.texture.TextureAtlas;
 import org.spongepowered.asm.mixin.Mixin;
