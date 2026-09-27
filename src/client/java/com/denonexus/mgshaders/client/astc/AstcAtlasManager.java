@@ -7,6 +7,7 @@ import com.mojang.blaze3d.textures.GpuTexture;
 import com.mojang.blaze3d.textures.GpuTextureView;
 import org.lwjgl.system.MemoryUtil;
 import org.lwjgl.opengl.GL15C;
+import org.lwjgl.opengl.GL21C;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.ModContainer;
 import net.minecraft.client.renderer.texture.TextureAtlas;
@@ -73,52 +74,39 @@ public final class AstcAtlasManager {
             "minecraft_textures_atlas_signs.astc"
     };
 
-    private static final Map<String, String> ATLAS_TO_FILE = Map.of(
-            "minecraft:textures/atlas/armor_trims.png",
-            "minecraft_textures_atlas_armor_trims.astc",
-
-            "minecraft:textures/atlas/banner_patterns.png",
-            "minecraft_textures_atlas_banner_patterns.astc",
-
-            "minecraft:textures/atlas/beds.png",
-            "minecraft_textures_atlas_beds.astc",
-
-            "minecraft:textures/atlas/blocks.png",
-            "minecraft_textures_atlas_blocks.astc",
-
-            "minecraft:textures/atlas/celestials.png",
-            "minecraft_textures_atlas_celestials.astc",
-
-            "minecraft:textures/atlas/chest.png",
-            "minecraft_textures_atlas_chest.astc",
-
-            "minecraft:textures/atlas/decorated_pot.png",
-            "minecraft_textures_atlas_decorated_pot.astc",
-
-            "minecraft:textures/atlas/gui.png",
-            "minecraft_textures_atlas_gui.astc",
-
-            "minecraft:textures/atlas/items.png",
-            "minecraft_textures_atlas_items.astc",
-
-            "minecraft:textures/atlas/map_decorations.png",
-            "minecraft_textures_atlas_map_decorations.astc",
-
-            "minecraft:textures/atlas/paintings.png",
-            "minecraft_textures_atlas_paintings.astc",
-
-            "minecraft:textures/atlas/particles.png",
-            "minecraft_textures_atlas_particles.astc",
-
-            "minecraft:textures/atlas/shield_patterns.png",
-            "minecraft_textures_atlas_shield_patterns.astc",
-
-            "minecraft:textures/atlas/shulker_boxes.png",
-            "minecraft_textures_atlas_shulker_boxes.astc",
-
-            "minecraft:textures/atlas/signs.png",
-            "minecraft_textures_atlas_signs.astc"
+    private static final Map<String, String> ATLAS_TO_FILE = Map.ofEntries(
+            Map.entry("minecraft:textures/atlas/armor_trims.png",
+                    "minecraft_textures_atlas_armor_trims.astc"),
+            Map.entry("minecraft:textures/atlas/banner_patterns.png",
+                    "minecraft_textures_atlas_banner_patterns.astc"),
+            Map.entry("minecraft:textures/atlas/beds.png",
+                    "minecraft_textures_atlas_beds.astc"),
+            Map.entry("minecraft:textures/atlas/blocks.png",
+                    "minecraft_textures_atlas_blocks.astc"),
+            Map.entry("minecraft:textures/atlas/celestials.png",
+                    "minecraft_textures_atlas_celestials.astc"),
+            Map.entry("minecraft:textures/atlas/chest.png",
+                    "minecraft_textures_atlas_chest.astc"),
+            Map.entry("minecraft:textures/atlas/decorated_pot.png",
+                    "minecraft_textures_atlas_decorated_pot.astc"),
+            Map.entry("minecraft:textures/atlas/gui.png",
+                    "minecraft_textures_atlas_gui.astc"),
+            Map.entry("minecraft:textures/atlas/items.png",
+                    "minecraft_textures_atlas_items.astc"),
+            Map.entry("minecraft:textures/atlas/map_decorations.png",
+                    "minecraft_textures_atlas_map_decorations.astc"),
+            Map.entry("minecraft:textures/atlas/paintings.png",
+                    "minecraft_textures_atlas_paintings.astc"),
+            Map.entry("minecraft:textures/atlas/particles.png",
+                    "minecraft_textures_atlas_particles.astc"),
+            Map.entry("minecraft:textures/atlas/shield_patterns.png",
+                    "minecraft_textures_atlas_shield_patterns.astc"),
+            Map.entry("minecraft:textures/atlas/shulker_boxes.png",
+                    "minecraft_textures_atlas_shulker_boxes.astc"),
+            Map.entry("minecraft:textures/atlas/signs.png",
+                    "minecraft_textures_atlas_signs.astc")
     );
+
 
     private static final Set<String> TARGET_ATLASES =
             Set.copyOf(ATLAS_TO_FILE.keySet());
@@ -360,11 +348,11 @@ public final class AstcAtlasManager {
                  */
                 int previousUnpackBuffer =
                         GL11C.glGetInteger(
-                                GL15C.GL_PIXEL_UNPACK_BUFFER_BINDING
+                                GL21C.GL_PIXEL_UNPACK_BUFFER_BINDING
                         );
 
                 GL15C.glBindBuffer(
-                        GL15C.GL_PIXEL_UNPACK_BUFFER,
+                        GL21C.GL_PIXEL_UNPACK_BUFFER,
                         0
                 );
 
@@ -382,7 +370,7 @@ public final class AstcAtlasManager {
                     );
                 } finally {
                     GL15C.glBindBuffer(
-                            GL15C.GL_PIXEL_UNPACK_BUFFER,
+                            GL21C.GL_PIXEL_UNPACK_BUFFER,
                             previousUnpackBuffer
                     );
                 }
@@ -564,7 +552,7 @@ public final class AstcAtlasManager {
     ) {
 
         if (texture instanceof com.mojang.blaze3d.opengl.GlTexture gl) {
-            return gl.getGlId();
+            return gl.glId();
         }
 
         return 0;
