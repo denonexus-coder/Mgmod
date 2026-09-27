@@ -1,9 +1,12 @@
 package com.denonexus.mgshaders.client.astc;
 
 import com.mojang.blaze3d.systems.GpuDevice;
+import com.denonexus.mgshaders.client.mixin.AstcAtlasMixinAccess;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.textures.GpuTexture;
 import com.mojang.blaze3d.textures.GpuTextureView;
+import org.lwjgl.system.MemoryUtil;
+import org.lwjgl.opengl.GL15C;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.ModContainer;
 import net.minecraft.client.renderer.texture.TextureAtlas;
@@ -348,17 +351,41 @@ public final class AstcAtlasManager {
                         ByteOrder.nativeOrder()
                 );
 
-                GL13C.glCompressedTexImage2D(
-                        GL11C.GL_TEXTURE_2D,
-                        0,
-                        KHRTextureCompressionASTCLDR
-                                .GL_COMPRESSED_RGBA_ASTC_4x4_KHR,
-                        header.width,
-                        header.height,
-                        0,
-                        header.payloadSize,
-                        payload
+                /*
+                 * Minecraft's bundled LWJGL exposes this overload using
+                 * a native pointer (long), not ByteBuffer.
+                 *
+                 * Ensure no unpack PBO is bound: with a PBO active,
+                 * the long argument is interpreted as a byte offset.
+                 */
+                int previousUnpackBuffer =
+                        GL11C.glGetInteger(
+                                GL15C.GL_PIXEL_UNPACK_BUFFER_BINDING
+                        );
+
+                GL15C.glBindBuffer(
+                        GL15C.GL_PIXEL_UNPACK_BUFFER,
+                        0
                 );
+
+                try {
+                    GL13C.glCompressedTexImage2D(
+                            GL11C.GL_TEXTURE_2D,
+                            0,
+                            KHRTextureCompressionASTCLDR
+                                    .GL_COMPRESSED_RGBA_ASTC_4x4_KHR,
+                            header.width,
+                            header.height,
+                            0,
+                            header.payloadSize,
+                            MemoryUtil.memAddress(payload)
+                    );
+                } finally {
+                    GL15C.glBindBuffer(
+                            GL15C.GL_PIXEL_UNPACK_BUFFER,
+                            previousUnpackBuffer
+                    );
+                }
             }
 
             int glError =
@@ -536,7 +563,7 @@ public final class AstcAtlasManager {
             GpuTexture texture
     ) {
 
-        if (texture instanceof net.minecraft.client.texture.GlTexture gl) {
+        if (texture instanceof com.mojang.blaze3d.opengl.GlTexture gl) {
             return gl.getGlId();
         }
 
@@ -589,6 +616,12 @@ public final class AstcAtlasManager {
 
         while (GL11C.glGetError() != GL11C.GL_NO_ERROR) {
         }
+    }
+
+    private static void validateAstc(
+            Path file
+    ) throws IOException {
+        readHeader(file);
     }
 
     private static AstcHeader readHeader(
