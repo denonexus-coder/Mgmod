@@ -34,6 +34,9 @@ public abstract class AstcAtlasMixin
     private void mgshaders_installAstcAtlas(
             CallbackInfo ci
     ) {
+        // ASTC temporariamente desativado
+        if (true) return;
+        
         AstcAtlasManager.install(
                 (TextureAtlas) (Object) this
         );
@@ -47,6 +50,9 @@ public abstract class AstcAtlasMixin
     private void mgshaders_blockAstcAnimationUpload(
             CallbackInfo ci
     ) {
+        // ASTC temporariamente desativado
+        if (true) return;
+
         TextureAtlas atlas =
                 (TextureAtlas) (Object) this;
 
