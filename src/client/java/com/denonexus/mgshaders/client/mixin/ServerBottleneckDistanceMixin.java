@@ -6,7 +6,7 @@ import net.minecraft.server.level.DistanceManager;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(DistanceManager.class)
 public class ServerBottleneckDistanceMixin {
@@ -17,7 +17,7 @@ public class ServerBottleneckDistanceMixin {
     )
     private void mgshaders_distance_start(
             ChunkMap chunkMap,
-            CallbackInfo ci
+            CallbackInfoReturnable<Boolean> cir
     ) {
         ServerBottleneckProfiler.beginDistanceManager();
     }
@@ -28,7 +28,7 @@ public class ServerBottleneckDistanceMixin {
     )
     private void mgshaders_distance_end(
             ChunkMap chunkMap,
-            CallbackInfo ci
+            CallbackInfoReturnable<Boolean> cir
     ) {
         ServerBottleneckProfiler.endDistanceManager();
     }
