@@ -1,7 +1,7 @@
 package com.denonexus.mgshaders.client.mixin;
 
 import com.denonexus.mgshaders.client.render.MGChunkBatch;
-import net.minecraft.client.renderer.GpuSampler;
+import com.mojang.blaze3d.textures.GpuSampler;
 import net.minecraft.client.renderer.chunk.ChunkSectionLayerGroup;
 import net.minecraft.client.renderer.chunk.ChunkSectionsToRender;
 import org.spongepowered.asm.mixin.Mixin;

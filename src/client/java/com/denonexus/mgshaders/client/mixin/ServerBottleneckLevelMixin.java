@@ -35,7 +35,7 @@ public class ServerBottleneckLevelMixin {
 
         String world =
                 level.dimension()
-                        .location()
+                        .identifier()
                         .toString();
 
         ServerBottleneckProfiler.endWorldTick(world);
@@ -67,7 +67,7 @@ public class ServerBottleneckLevelMixin {
 
         String key =
                 level.dimension()
-                        .location()
+                        .identifier()
                         .toString()
                 + ":"
                 + chunk.getPos().x
