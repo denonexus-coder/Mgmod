@@ -3,7 +3,7 @@
   "package": "com.denonexus.mgshaders.region.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
-    "RegionFileStorageMixin"
+    "McaRegionFileMixin"
   ],
   "injectors": {
     "defaultRequire": 1
