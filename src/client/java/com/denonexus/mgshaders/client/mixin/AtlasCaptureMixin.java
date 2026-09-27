@@ -86,14 +86,17 @@ public abstract class AtlasCaptureMixin {
 
                         Files.createDirectories(namespaceDir);
 
-                        Path png =
-                                namespaceDir.resolve(
-                                        path + ".png"
-                                );
-
+                        /*
+                         * TextureAtlas.dumpContents() recebe o
+                         * DIRETÓRIO de saída, não o caminho final
+                         * do PNG.
+                         *
+                         * O método gera o PNG do atlas montado e
+                         * também o arquivo de nomes dos sprites.
+                         */
                         atlas.dumpContents(
                                 id,
-                                png
+                                namespaceDir
                         );
 
                         indexText.append(
@@ -104,7 +107,7 @@ public abstract class AtlasCaptureMixin {
                                 "[MGShaders] Atlas captured: "
                                         + id
                                         + " -> "
-                                        + png
+                                        + namespaceDir
                         );
 
                     } catch (Throwable t) {

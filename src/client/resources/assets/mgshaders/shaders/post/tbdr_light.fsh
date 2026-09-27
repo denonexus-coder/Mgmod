@@ -2,6 +2,10 @@
 
 #extension GL_EXT_shader_framebuffer_fetch : require
 
+#moj_import <minecraft:globals.glsl>
+#moj_import <minecraft:light.glsl>
+#moj_import <minecraft:fog.glsl>
+
 precision highp float;
 precision highp int;
 
@@ -12,31 +16,6 @@ uniform sampler2D MainDepthSampler;
 layout(std140) uniform SamplerInfo {
     vec2 OutSize;
     vec2 MainDepthSize;
-};
-
-layout(std140) uniform Globals {
-    ivec3 CameraBlockPos;
-    vec3 CameraOffset;
-    vec2 ScreenSize;
-    float GlintAlpha;
-    float GameTime;
-    int MenuBlurRadius;
-    int UseRgss;
-};
-
-layout(std140) uniform Lighting {
-    vec3 Light0_Direction;
-    vec3 Light1_Direction;
-};
-
-layout(std140) uniform Fog {
-    vec4 FogColor;
-    float FogEnvironmentalStart;
-    float FogEnvironmentalEnd;
-    float FogRenderDistanceStart;
-    float FogRenderDistanceEnd;
-    float FogSkyEnd;
-    float FogCloudsEnd;
 };
 
 const float PI = 3.14159265358979323846;

@@ -16,6 +16,7 @@ public class ServerBottleneckChunkCacheMixin {
     )
     private void mgshaders_chunk_cache_start(
             java.util.function.BooleanSupplier haveTime,
+            boolean tickChunks,
             CallbackInfo ci
     ) {
         ServerBottleneckProfiler.beginChunkCache();
@@ -27,6 +28,7 @@ public class ServerBottleneckChunkCacheMixin {
     )
     private void mgshaders_chunk_cache_end(
             java.util.function.BooleanSupplier haveTime,
+            boolean tickChunks,
             CallbackInfo ci
     ) {
         ServerBottleneckProfiler.endChunkCache();
