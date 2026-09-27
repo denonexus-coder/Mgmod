@@ -35,7 +35,7 @@
     "MGClientLevelMixin",
     "MGGameRendererMixin",
     "AstcAtlasMixin",
-    "GlTextureAccessMixin"
+    "AbstractTextureAccessMixin"
   ],
   "injectors": {
     "defaultRequire": 1

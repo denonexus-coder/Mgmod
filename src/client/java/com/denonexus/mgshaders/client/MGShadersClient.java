@@ -1,16 +1,11 @@
 package com.denonexus.mgshaders.client;
 
+import com.denonexus.mgshaders.client.astc.AstcAtlasManager;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/*
- * Chunk mesh generation/upload remains vanilla.
- *
- * RegionSystem prepares availability.
- * SectionRenderDispatcher remains responsible for client mesh work.
- */
 public final class MGShadersClient
         implements ClientModInitializer {
 
@@ -22,12 +17,24 @@ public final class MGShadersClient
     @Override
     public void onInitializeClient() {
 
+        /*
+         * The ASTC resources are bundled inside the mod JAR.
+         *
+         * Runtime never depends on:
+         *
+         * /storage/emulated/0/minecraft_astc/...
+         *
+         * The resources are materialized into the game's private
+         * mg_astc_cache directory so FileChannel.map() can be used.
+         */
+        AstcAtlasManager.prepareBundledAssets();
+
         ClientTickEvents.END_CLIENT_TICK
                 .register(client -> {
                 });
 
         LOGGER.info(
-                "MGShaders: vanilla SectionRenderDispatcher mesh/upload path retained"
+                "MGShaders: direct bundled ASTC atlas backend enabled"
         );
     }
 }

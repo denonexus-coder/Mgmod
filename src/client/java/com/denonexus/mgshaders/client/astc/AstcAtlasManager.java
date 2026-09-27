@@ -1,8 +1,11 @@
 package com.denonexus.mgshaders.client.astc;
 
-import com.mojang.blaze3d.opengl.GlTexture;
-import com.mojang.blaze3d.textures.GpuTexture;
+import com.mojang.blaze3d.systems.GpuDevice;
 import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.textures.GpuTexture;
+import com.mojang.blaze3d.textures.GpuTextureView;
+import net.fabricmc.loader.api.FabricLoader;
+import net.fabricmc.loader.api.ModContainer;
 import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.resources.Identifier;
 import org.lwjgl.opengl.GL11C;
@@ -16,383 +19,597 @@ import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
-import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
-import java.util.WeakHashMap;
 
+/**
+ * Direct ASTC atlas backend for Minecraft 1.21.11 OpenGL.
+ *
+ * Runtime source:
+ *
+ *     assets/mgshaders/astc/*.astc
+ *
+ * The resources are materialized once into:
+ *
+ *     <gameDir>/mg_astc_cache/gpu/*.astc
+ *
+ * The GPU upload then uses FileChannel.map() and
+ * glCompressedTexImage2D().
+ *
+ * There is deliberately no PNG fallback.
+ */
 public final class AstcAtlasManager {
 
-    private static final Path ASTC_ROOT =
-            Path.of("/storage/emulated/0/minecraft_astc/astc_compressed");
+    private static final String MOD_ID = "mgshaders";
 
-    private static final Set<String> TARGET_ATLASES = Set.of(
+    private static final Path CACHE_ROOT =
+            FabricLoader.getInstance()
+                    .getGameDir()
+                    .resolve("mg_astc_cache")
+                    .resolve("gpu");
+
+    private static final String[] ASTC_FILES = {
+            "minecraft_textures_atlas_armor_trims.astc",
+            "minecraft_textures_atlas_banner_patterns.astc",
+            "minecraft_textures_atlas_beds.astc",
+            "minecraft_textures_atlas_blocks.astc",
+            "minecraft_textures_atlas_celestials.astc",
+            "minecraft_textures_atlas_chest.astc",
+            "minecraft_textures_atlas_decorated_pot.astc",
+            "minecraft_textures_atlas_gui.astc",
+            "minecraft_textures_atlas_items.astc",
+            "minecraft_textures_atlas_map_decorations.astc",
+            "minecraft_textures_atlas_paintings.astc",
+            "minecraft_textures_atlas_particles.astc",
+            "minecraft_textures_atlas_shield_patterns.astc",
+            "minecraft_textures_atlas_shulker_boxes.astc",
+            "minecraft_textures_atlas_signs.astc"
+    };
+
+    private static final Map<String, String> ATLAS_TO_FILE = Map.of(
             "minecraft:textures/atlas/armor_trims.png",
+            "minecraft_textures_atlas_armor_trims.astc",
+
             "minecraft:textures/atlas/banner_patterns.png",
+            "minecraft_textures_atlas_banner_patterns.astc",
+
             "minecraft:textures/atlas/beds.png",
+            "minecraft_textures_atlas_beds.astc",
+
             "minecraft:textures/atlas/blocks.png",
+            "minecraft_textures_atlas_blocks.astc",
+
             "minecraft:textures/atlas/celestials.png",
+            "minecraft_textures_atlas_celestials.astc",
+
             "minecraft:textures/atlas/chest.png",
+            "minecraft_textures_atlas_chest.astc",
+
             "minecraft:textures/atlas/decorated_pot.png",
+            "minecraft_textures_atlas_decorated_pot.astc",
+
             "minecraft:textures/atlas/gui.png",
+            "minecraft_textures_atlas_gui.astc",
+
             "minecraft:textures/atlas/items.png",
+            "minecraft_textures_atlas_items.astc",
+
             "minecraft:textures/atlas/map_decorations.png",
+            "minecraft_textures_atlas_map_decorations.astc",
+
             "minecraft:textures/atlas/paintings.png",
+            "minecraft_textures_atlas_paintings.astc",
+
             "minecraft:textures/atlas/particles.png",
+            "minecraft_textures_atlas_particles.astc",
+
             "minecraft:textures/atlas/shield_patterns.png",
+            "minecraft_textures_atlas_shield_patterns.astc",
+
             "minecraft:textures/atlas/shulker_boxes.png",
-            "minecraft:textures/atlas/signs.png"
+            "minecraft_textures_atlas_shulker_boxes.astc",
+
+            "minecraft:textures/atlas/signs.png",
+            "minecraft_textures_atlas_signs.astc"
     );
 
-    private static final Set<TextureAtlas> ACTIVE =
-            Collections.newSetFromMap(new WeakHashMap<>());
-
-    private static final Set<TextureAtlas> DISABLED =
-            Collections.newSetFromMap(new WeakHashMap<>());
-
-    private static final int ASTC_MAGIC = 0x5CA1AB13;
+    private static final Set<String> TARGET_ATLASES =
+            Set.copyOf(ATLAS_TO_FILE.keySet());
 
     private AstcAtlasManager() {
     }
 
     public static boolean manages(TextureAtlas atlas) {
-        return TARGET_ATLASES.contains(atlas.location().toString());
+        return TARGET_ATLASES.contains(
+                atlas.location().toString()
+        );
     }
 
-    public static boolean isAstcActive(TextureAtlas atlas) {
-        return ACTIVE.contains(atlas);
-    }
+    /**
+     * Materializes the ASTC files from the actual mod resource tree.
+     *
+     * This is intentionally independent from Android shared storage.
+     */
+    public static void prepareBundledAssets() {
 
-    public static boolean isAstcDisabled(TextureAtlas atlas) {
-        return DISABLED.contains(atlas);
+        try {
+            Files.createDirectories(CACHE_ROOT);
+
+            ModContainer mod = FabricLoader.getInstance()
+                    .getModContainer(MOD_ID)
+                    .orElseThrow(() ->
+                            new IllegalStateException(
+                                    "MGShaders mod container not found"
+                            )
+                    );
+
+            for (String fileName : ASTC_FILES) {
+
+                String resourcePath =
+                        "assets/mgshaders/astc/" + fileName;
+
+                Path source = mod.findPath(resourcePath)
+                        .orElseThrow(() ->
+                                new IOException(
+                                        "Missing bundled ASTC resource: "
+                                                + resourcePath
+                                )
+                        );
+
+                Path target =
+                        CACHE_ROOT.resolve(fileName);
+
+                boolean copy = !Files.isRegularFile(target);
+
+                if (!copy) {
+                    long sourceSize = Files.size(source);
+                    long targetSize = Files.size(target);
+
+                    copy = sourceSize != targetSize;
+
+                    if (!copy) {
+                        copy = Files.mismatch(source, target) != -1;
+                    }
+                }
+
+                if (copy) {
+                    Files.copy(
+                            source,
+                            target,
+                            StandardCopyOption.REPLACE_EXISTING
+                    );
+                }
+
+                validateAstc(target);
+
+                System.out.println(
+                        "[MGShaders][ASTC] bundled resource OK: "
+                                + resourcePath
+                                + " -> "
+                                + target
+                );
+            }
+
+            System.out.println(
+                    "[MGShaders][ASTC] all 15 bundled ASTC resources ready"
+            );
+
+        } catch (Throwable t) {
+
+            throw new IllegalStateException(
+                    "[MGShaders][ASTC][FATAL] "
+                            + "Bundled ASTC preparation failed",
+                    t
+            );
+        }
     }
 
     public static boolean isAstcManaged(TextureAtlas atlas) {
-        return manages(atlas) &&
-                (ACTIVE.contains(atlas) || DISABLED.contains(atlas));
+        return manages(atlas);
     }
 
     public static void install(TextureAtlas atlas) {
-        if (!manages(atlas)) {
-            return;
-        }
 
-        if (ACTIVE.contains(atlas) || DISABLED.contains(atlas)) {
+        if (!manages(atlas)) {
             return;
         }
 
         RenderSystem.assertOnRenderThread();
 
-        final String atlasId = atlas.location().toString();
-        final Path astcFile = astcPath(atlas.location());
+        GpuTexture oldTexture = atlas.getTexture();
 
-        System.out.println(
-                "[MGShaders][ASTC] Installing direct GPU atlas: "
-                        + atlasId
-                        + " -> "
-                        + astcFile
-        );
-
-        GpuTexture gpuTexture = atlas.getTexture();
-
-        if (!(gpuTexture instanceof GlTexture glTexture)) {
-            disable(
-                    atlas,
-                    null,
-                    "Minecraft is not using the OpenGL GlTexture backend: "
-                            + gpuTexture.getClass().getName()
-            );
+        /*
+         * Resource reload can recreate the vanilla texture on the same
+         * TextureAtlas instance. Only skip when the current texture is
+         * already our ASTC GlTexture.
+         */
+        if (oldTexture instanceof AstcGlTexture) {
             return;
         }
 
-        GlTextureAccessMixin access = (GlTextureAccessMixin) (Object) glTexture;
+        String atlasId =
+                atlas.location().toString();
 
-        int oldId = access.mg$getId();
+        String fileName =
+                ATLAS_TO_FILE.get(atlasId);
+
+        if (fileName == null) {
+            throw new IllegalStateException(
+                    "[MGShaders][ASTC][FATAL] No ASTC mapping for "
+                            + atlasId
+            );
+        }
+
+        Path astcFile =
+                CACHE_ROOT.resolve(fileName);
+
+        if (!Files.isRegularFile(astcFile)) {
+            throw new IllegalStateException(
+                    "[MGShaders][ASTC][FATAL] Missing runtime ASTC file: "
+                            + astcFile
+            );
+        }
+
+        AstcHeader header;
 
         try {
-            if (!Files.isRegularFile(astcFile)) {
-                throw new IOException(
-                        "ASTC file does not exist: " + astcFile
+            header = readHeader(astcFile);
+        } catch (IOException e) {
+            throw new IllegalStateException(
+                    "[MGShaders][ASTC][FATAL] Invalid ASTC file: "
+                            + astcFile,
+                    e
+            );
+        }
+
+        int vanillaWidth =
+                oldTexture.getWidth(0);
+
+        int vanillaHeight =
+                oldTexture.getHeight(0);
+
+        if (header.width != vanillaWidth ||
+                header.height != vanillaHeight) {
+
+            throw new IllegalStateException(
+                    "[MGShaders][ASTC][FATAL] Atlas dimension mismatch: "
+                            + atlasId
+                            + " vanilla="
+                            + vanillaWidth
+                            + "x"
+                            + vanillaHeight
+                            + " ASTC="
+                            + header.width
+                            + "x"
+                            + header.height
+            );
+        }
+
+        int previousBinding =
+                GL11C.glGetInteger(
+                        GL11C.GL_TEXTURE_BINDING_2D
                 );
-            }
 
-            AstcHeader header = readHeader(astcFile);
+        clearGlErrors();
 
-            int atlasWidth = gpuTexture.getWidth(0);
-            int atlasHeight = gpuTexture.getHeight(0);
+        int newGlId =
+                GL11C.glGenTextures();
 
-            if (header.width != atlasWidth ||
-                    header.height != atlasHeight) {
+        if (newGlId == 0) {
+            throw new IllegalStateException(
+                    "[MGShaders][ASTC][FATAL] glGenTextures returned 0 for "
+                            + atlasId
+            );
+        }
 
-                throw new IOException(
-                        "ATLAS DIMENSION MISMATCH: "
-                                + atlasId
-                                + " vanilla="
-                                + atlasWidth
-                                + "x"
-                                + atlasHeight
-                                + " ASTC="
-                                + header.width
-                                + "x"
-                                + header.height
+        AstcGlTexture newTexture = null;
+        GpuTextureView newTextureView = null;
+
+        try {
+
+            GL11C.glBindTexture(
+                    GL11C.GL_TEXTURE_2D,
+                    newGlId
+            );
+
+            /*
+             * Only mip level 0 exists in the supplied ASTC files.
+             */
+            GL11C.glTexParameteri(
+                    GL11C.GL_TEXTURE_2D,
+                    GL12C.GL_TEXTURE_BASE_LEVEL,
+                    0
+            );
+
+            GL11C.glTexParameteri(
+                    GL11C.GL_TEXTURE_2D,
+                    GL12C.GL_TEXTURE_MAX_LEVEL,
+                    0
+            );
+
+            try (FileChannel channel =
+                         FileChannel.open(
+                                 astcFile,
+                                 StandardOpenOption.READ
+                         )) {
+
+                ByteBuffer payload =
+                        channel.map(
+                                FileChannel.MapMode.READ_ONLY,
+                                16L,
+                                header.payloadSize
+                        );
+
+                payload.order(
+                        ByteOrder.nativeOrder()
                 );
-            }
 
-            if (header.blockX != 4 ||
-                    header.blockY != 4 ||
-                    header.blockZ != 1) {
-
-                throw new IOException(
-                        "Unsupported ASTC block "
-                                + header.blockX
-                                + "x"
-                                + header.blockY
-                                + "x"
-                                + header.blockZ
-                );
-            }
-
-            if (header.depth != 1) {
-                throw new IOException(
-                        "Unsupported ASTC depth: " + header.depth
-                );
-            }
-
-            if (header.payloadSize != header.expectedPayloadSize) {
-                throw new IOException(
-                        "ASTC payload mismatch: file="
-                                + header.payloadSize
-                                + " expected="
-                                + header.expectedPayloadSize
-                );
-            }
-
-            int previousBinding =
-                    GL11C.glGetInteger(GL11C.GL_TEXTURE_BINDING_2D);
-
-            while (GL11C.glGetError() != GL11C.GL_NO_ERROR) {
-                // Clear stale GL errors before the critical upload.
-            }
-
-            int newId = GL11C.glGenTextures();
-
-            if (newId == 0) {
-                throw new IOException(
-                        "glGenTextures returned 0"
-                );
-            }
-
-            try {
-                GL11C.glBindTexture(
+                GL13C.glCompressedTexImage2D(
                         GL11C.GL_TEXTURE_2D,
-                        newId
+                        0,
+                        KHRTextureCompressionASTCLDR
+                                .GL_COMPRESSED_RGBA_ASTC_4x4_KHR,
+                        header.width,
+                        header.height,
+                        0,
+                        header.payloadSize,
+                        payload
                 );
+            }
 
-                /*
-                 * The ASTC files contain only mip level 0.
-                 *
-                 * Restrict the texture object to level 0 so the
-                 * existing Minecraft sampler cannot request an
-                 * undefined mip level.
-                 */
-                GL11C.glTexParameteri(
-                        GL11C.GL_TEXTURE_2D,
-                        GL12C.GL_TEXTURE_BASE_LEVEL,
-                        0
+            int glError =
+                    GL11C.glGetError();
+
+            if (glError != GL11C.GL_NO_ERROR) {
+
+                throw new IllegalStateException(
+                        String.format(
+                                "[MGShaders][ASTC][FATAL] "
+                                        + "ASTC GPU upload failed for %s: GL 0x%04X",
+                                atlasId,
+                                glError
+                        )
                 );
+            }
 
-                GL11C.glTexParameteri(
-                        GL11C.GL_TEXTURE_2D,
-                        GL12C.GL_TEXTURE_MAX_LEVEL,
-                        0
-                );
-
-                try (FileChannel channel =
-                             FileChannel.open(
-                                     astcFile,
-                                     StandardOpenOption.READ
-                             )) {
-
-                    ByteBuffer payload =
-                            channel.map(
-                                    FileChannel.MapMode.READ_ONLY,
-                                    16,
-                                    header.payloadSize
-                            );
-
-                    payload.order(ByteOrder.nativeOrder());
-
-                    GL13C.glCompressedTexImage2D(
-                            GL11C.GL_TEXTURE_2D,
-                            0,
-                            KHRTextureCompressionASTCLDR
-                                    .GL_COMPRESSED_RGBA_ASTC_4x4_KHR,
+            /*
+             * Build a real Minecraft 1.21.11 GlTexture object around
+             * the ASTC GL texture name.
+             *
+             * Metadata remains the vanilla texture format because the
+             * Minecraft resource system represents the atlas as RGBA.
+             */
+            newTexture =
+                    new AstcGlTexture(
+                            oldTexture.usage(),
+                            oldTexture.getLabel(),
+                            oldTexture.getFormat(),
                             header.width,
                             header.height,
+                            oldTexture.getDepthOrLayers(),
+                            1,
+                            newGlId
+                    );
+
+            GpuDevice device =
+                    RenderSystem.getDevice();
+
+            newTextureView =
+                    device.createTextureView(
+                            newTexture,
                             0,
-                            header.payloadSize,
-                            payload
+                            1
+                    );
+
+            /*
+             * Replace Minecraft's AbstractTexture GPU references and
+             * TextureAtlas mip view state atomically before releasing
+             * the old resources.
+             */
+            AbstractTextureAccess textureAccess =
+                    (AbstractTextureAccess)
+                            (Object) atlas;
+
+            GpuTextureView oldTextureView =
+                    atlas.getTextureView();
+
+            GpuTextureView[] oldMipViews =
+                    ((AstcAtlasMixinAccess)
+                            (Object) atlas)
+                            .mg$getMipViews();
+
+            textureAccess.mg$setTexture(
+                    newTexture
+            );
+
+            textureAccess.mg$setTextureView(
+                    newTextureView
+            );
+
+            AstcAtlasMixinAccess atlasAccess =
+                    (AstcAtlasMixinAccess)
+                            (Object) atlas;
+
+            atlasAccess.mg$setMipLevelCount(1);
+            atlasAccess.mg$setMaxMipLevel(0);
+            atlasAccess.mg$setMipViews(
+                    new GpuTextureView[]{
+                            newTextureView
+                    }
+            );
+
+            /*
+             * The old texture/view objects are no longer referenced by
+             * TextureAtlas. Close them only after the replacement is
+             * installed.
+             */
+            closeOldViews(
+                    oldTextureView,
+                    oldMipViews,
+                    newTextureView
+            );
+
+            if (oldTexture != newTexture) {
+                try {
+                    oldTexture.close();
+                } catch (Throwable closeFailure) {
+                    System.err.println(
+                            "[MGShaders][ASTC] old atlas texture close warning: "
+                                    + closeFailure
                     );
                 }
+            }
 
-                int error = GL11C.glGetError();
-
-                if (error != GL11C.GL_NO_ERROR) {
-                    throw new IOException(
-                            String.format(
-                                    "glCompressedTexImage2D failed: 0x%04X",
-                                    error
-                            )
-                    );
-                }
-
-                /*
-                 * Upload succeeded.
-                 *
-                 * If Minecraft happened to have the old atlas bound,
-                 * bind the new texture before deleting the old name.
-                 */
-                if (previousBinding == oldId) {
-                    GL11C.glBindTexture(
-                            GL11C.GL_TEXTURE_2D,
-                            newId
-                    );
-                } else {
-                    GL11C.glBindTexture(
-                            GL11C.GL_TEXTURE_2D,
-                            previousBinding
-                    );
-                }
-
-                /*
-                 * The vanilla PNG-backed GL texture is now destroyed.
-                 * There is deliberately NO PNG fallback.
-                 */
-                if (oldId != 0) {
-                    GL11C.glDeleteTextures(oldId);
-                }
-
-                access.mg$setId(newId);
-
-                ACTIVE.add(atlas);
-
-                System.out.println(
-                        "[MGShaders][ASTC] GPU upload SUCCESS: "
-                                + atlasId
-                                + " "
-                                + header.width
-                                + "x"
-                                + header.height
-                                + " payload="
-                                + header.payloadSize
-                                + " bytes"
-                                + " glId="
-                                + newId
+            /*
+             * Keep the GL state coherent with the actual GL texture name.
+             */
+            if (previousBinding == oldTextureGlId(oldTexture)) {
+                GL11C.glBindTexture(
+                        GL11C.GL_TEXTURE_2D,
+                        newGlId
                 );
-
-            } catch (Throwable uploadFailure) {
-
+            } else {
                 GL11C.glBindTexture(
                         GL11C.GL_TEXTURE_2D,
                         previousBinding
                 );
-
-                GL11C.glDeleteTextures(newId);
-
-                throw uploadFailure;
             }
+
+            System.out.println(
+                    "[MGShaders][ASTC] GPU ASTC ACTIVE: "
+                            + atlasId
+                            + " "
+                            + header.width
+                            + "x"
+                            + header.height
+                            + " payload="
+                            + header.payloadSize
+                            + " glId="
+                            + newGlId
+            );
 
         } catch (Throwable failure) {
 
-            disable(
-                    atlas,
-                    oldId,
-                    failure.getMessage() == null
-                            ? failure.toString()
-                            : failure.getMessage()
+            /*
+             * Do NOT destroy the vanilla texture on failure.
+             * The failure is fatal instead of silently falling back.
+             */
+            GL11C.glBindTexture(
+                    GL11C.GL_TEXTURE_2D,
+                    previousBinding
+            );
+
+            if (newTextureView != null) {
+                try {
+                    newTextureView.close();
+                } catch (Throwable ignored) {
+                }
+            }
+
+            if (newTexture != null) {
+                try {
+                    newTexture.close();
+                } catch (Throwable ignored) {
+                }
+            } else if (newGlId != 0) {
+                GL11C.glDeleteTextures(newGlId);
+            }
+
+            if (failure instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+
+            throw new IllegalStateException(
+                    "[MGShaders][ASTC][FATAL] "
+                            + "ASTC installation failed for "
+                            + atlasId,
+                    failure
             );
         }
     }
 
-    private static void disable(
-            TextureAtlas atlas,
-            Integer oldId,
-            String reason
+    private static int oldTextureGlId(
+            GpuTexture texture
     ) {
-        try {
-            GpuTexture gpuTexture = atlas.getTexture();
 
-            if (gpuTexture instanceof GlTexture glTexture) {
-                GlTextureAccessMixin access =
-                        (GlTextureAccessMixin) (Object) glTexture;
+        if (texture instanceof net.minecraft.client.texture.GlTexture gl) {
+            return gl.getGlId();
+        }
 
-                int id = oldId != null
-                        ? oldId
-                        : access.mg$getId();
+        return 0;
+    }
 
-                if (id != 0) {
-                    GL11C.glDeleteTextures(id);
+    private static void closeOldViews(
+            GpuTextureView currentView,
+            GpuTextureView[] mipViews,
+            GpuTextureView replacement
+    ) {
+
+        Set<GpuTextureView> closed =
+                java.util.Collections.newSetFromMap(
+                        new IdentityHashMap<>()
+                );
+
+        if (currentView != null &&
+                currentView != replacement) {
+
+            try {
+                currentView.close();
+            } catch (Throwable ignored) {
+            }
+
+            closed.add(currentView);
+        }
+
+        if (mipViews != null) {
+
+            for (GpuTextureView view : mipViews) {
+
+                if (view == null ||
+                        view == replacement ||
+                        closed.contains(view)) {
+                    continue;
                 }
 
-                /*
-                 * Deliberately make this atlas unusable.
-                 *
-                 * This is NOT a fallback.
-                 * Rendering with this atlas therefore produces no
-                 * valid texture instead of silently returning to PNG.
-                 */
-                access.mg$setId(0);
+                try {
+                    view.close();
+                } catch (Throwable ignored) {
+                }
+
+                closed.add(view);
             }
-        } catch (Throwable t) {
-            System.err.println(
-                    "[MGShaders][ASTC] Failed to disable atlas "
-                            + atlas.location()
-                            + ": "
-                            + t
-            );
         }
-
-        DISABLED.add(atlas);
-
-        System.err.println(
-                "[MGShaders][ASTC][FATAL] Atlas disabled: "
-                        + atlas.location()
-                        + " | "
-                        + reason
-        );
     }
 
-    private static Path astcPath(Identifier id) {
-        String name = id.toString();
+    private static void clearGlErrors() {
 
-        if (!name.endsWith(".png")) {
-            throw new IllegalArgumentException(
-                    "Unexpected atlas identifier: " + name
-            );
+        while (GL11C.glGetError() != GL11C.GL_NO_ERROR) {
         }
-
-        String stem =
-                name.substring(0, name.length() - 4)
-                        .replace(':', '_')
-                        .replace('/', '_');
-
-        return ASTC_ROOT.resolve(stem + ".astc");
     }
 
-    private static AstcHeader readHeader(Path file)
-            throws IOException {
+    private static AstcHeader readHeader(
+            Path file
+    ) throws IOException {
 
-        long fileSize = Files.size(file);
+        long fileSize =
+                Files.size(file);
 
         if (fileSize < 16) {
             throw new IOException(
-                    "ASTC file smaller than 16-byte header: " + file
+                    "ASTC file smaller than 16 bytes: "
+                            + file
             );
         }
 
         ByteBuffer header =
                 ByteBuffer.allocate(16)
-                        .order(ByteOrder.LITTLE_ENDIAN);
+                        .order(
+                                ByteOrder.LITTLE_ENDIAN
+                        );
 
         try (FileChannel channel =
                      FileChannel.open(
@@ -401,11 +618,14 @@ public final class AstcAtlasManager {
                      )) {
 
             while (header.hasRemaining()) {
-                int n = channel.read(header);
 
-                if (n < 0) {
+                int read =
+                        channel.read(header);
+
+                if (read < 0) {
                     throw new IOException(
-                            "Unexpected EOF reading ASTC header"
+                            "Unexpected EOF in ASTC header: "
+                                    + file
                     );
                 }
             }
@@ -419,18 +639,38 @@ public final class AstcAtlasManager {
                         | ((header.get(2) & 0xFF) << 16)
                         | ((header.get(3) & 0xFF) << 24);
 
-        if (magic != ASTC_MAGIC) {
+        if (magic != 0x5CA1AB13) {
             throw new IOException(
                     String.format(
-                            "Invalid ASTC magic: 0x%08X",
-                            magic
+                            "Invalid ASTC magic 0x%08X: %s",
+                            magic,
+                            file
                     )
             );
         }
 
-        int blockX = header.get(4) & 0xFF;
-        int blockY = header.get(5) & 0xFF;
-        int blockZ = header.get(6) & 0xFF;
+        int blockX =
+                header.get(4) & 0xFF;
+
+        int blockY =
+                header.get(5) & 0xFF;
+
+        int blockZ =
+                header.get(6) & 0xFF;
+
+        if (blockX != 4 ||
+                blockY != 4 ||
+                blockZ != 1) {
+
+            throw new IOException(
+                    "Only ASTC 4x4x1 is supported: "
+                            + blockX
+                            + "x"
+                            + blockY
+                            + "x"
+                            + blockZ
+            );
+        }
 
         int width =
                 read24(header, 7);
@@ -441,7 +681,10 @@ public final class AstcAtlasManager {
         int depth =
                 read24(header, 13);
 
-        if (width <= 0 || height <= 0 || depth <= 0) {
+        if (width <= 0 ||
+                height <= 0 ||
+                depth != 1) {
+
             throw new IOException(
                     "Invalid ASTC dimensions: "
                             + width
@@ -453,36 +696,32 @@ public final class AstcAtlasManager {
         }
 
         long blocksX =
-                (width + blockX - 1L) / blockX;
+                (width + 3L) / 4L;
 
         long blocksY =
-                (height + blockY - 1L) / blockY;
-
-        long blocksZ =
-                (depth + blockZ - 1L) / blockZ;
+                (height + 3L) / 4L;
 
         long expectedPayload =
                 blocksX
                         * blocksY
-                        * blocksZ
                         * 16L;
 
-        long payloadSize =
+        long payload =
                 fileSize - 16L;
 
-        if (expectedPayload != payloadSize) {
+        if (payload != expectedPayload) {
+
             throw new IOException(
-                    "Invalid ASTC payload: "
-                            + payloadSize
-                            + " != "
+                    "ASTC payload mismatch: file="
+                            + payload
+                            + " expected="
                             + expectedPayload
             );
         }
 
-        if (payloadSize > Integer.MAX_VALUE) {
+        if (payload > Integer.MAX_VALUE) {
             throw new IOException(
-                    "ASTC payload too large for GL upload: "
-                            + payloadSize
+                    "ASTC payload exceeds Java ByteBuffer limit"
             );
         }
 
@@ -490,11 +729,7 @@ public final class AstcAtlasManager {
                 width,
                 height,
                 depth,
-                blockX,
-                blockY,
-                blockZ,
-                (int) payloadSize,
-                (int) expectedPayload
+                (int) payload
         );
     }
 
@@ -502,6 +737,7 @@ public final class AstcAtlasManager {
             ByteBuffer buffer,
             int offset
     ) {
+
         return (buffer.get(offset) & 0xFF)
                 | ((buffer.get(offset + 1) & 0xFF) << 8)
                 | ((buffer.get(offset + 2) & 0xFF) << 16);
@@ -511,11 +747,7 @@ public final class AstcAtlasManager {
             int width,
             int height,
             int depth,
-            int blockX,
-            int blockY,
-            int blockZ,
-            int payloadSize,
-            int expectedPayloadSize
+            int payloadSize
     ) {
     }
 }

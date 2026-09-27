@@ -1,5 +1,7 @@
 package com.denonexus.mgshaders.client.mixin;
 
+import com.denonexus.mgshaders.client.astc.AstcAtlasManager;
+
 import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.client.resources.model.AtlasManager;
 import net.minecraft.resources.Identifier;
